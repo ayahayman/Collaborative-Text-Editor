@@ -6,80 +6,126 @@ import java.awt.event.*;
 import java.io.*;
 import java.net.*;
 
-class SignUpFrame extends JFrame {
+public class SignUpFrame extends JFrame {
     private JTextField usernameField;
     private JPasswordField passwordField;
-    private JButton signUpButton;
+    private JButton signUpButton, backButton;
 
     public SignUpFrame() {
         setTitle("Sign Up");
-        setSize(400, 300);
+        setSize(500, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Set a background color for the window
-        getContentPane().setBackground(new Color(255, 255, 255));
-        setLayout(new BorderLayout());
+        GradientPanel background = new GradientPanel();
+        background.setLayout(new GridBagLayout());
+        setContentPane(background);
 
-        // Add a panel to hold the sign-up form components
-        JPanel panel = new JPanel();
-        panel.setLayout(new GridLayout(4, 2, 10, 0));
-        panel.setBackground(new Color(255, 255, 255));
+        JPanel formPanel = new JPanel();
+        formPanel.setLayout(new BoxLayout(formPanel, BoxLayout.Y_AXIS));
+        formPanel.setBackground(new Color(255, 255, 255, 220));
+        formPanel.setBorder(BorderFactory.createEmptyBorder(30, 40, 30, 40));
 
-        // Label for username and password
-        JLabel usernameLabel = new JLabel("Username:");
-        JLabel passwordLabel = new JLabel("Password:");
-        usernameLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        passwordLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        JLabel signUpLabel = new JLabel("SIGN UP");
+        signUpLabel.setFont(new Font("Arial", Font.BOLD, 24));
+        signUpLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        signUpLabel.setForeground(new Color(0, 51, 102));
 
-        // Initialize components
         usernameField = new JTextField(20);
         passwordField = new JPasswordField(20);
-        signUpButton = new JButton("Sign Up");
+        styleInputField(usernameField, "Username");
+        styleInputField(passwordField, "Password");
 
-        // Style the buttons
-        signUpButton.setBackground(new Color(253, 181, 28));
-        signUpButton.setForeground(Color.WHITE);
+        signUpButton = new JButton("CREATE ACCOUNT");
+        backButton = new JButton("BACK TO LOGIN");
 
-                d components to the panel
-                .add(usernameLabel);
-        panel.add(usernameField);
-        panel.add(passwordLabel);
-        panel.add(passwordField);
-        panel.add(new JLabel()); // Empty space
-        panel.add(new JLabel()); // Empty space
-        panel.add(signUpButton);
+        styleButton(signUpButton, new Color(253, 181, 28));
+        styleButton(backButton, new Color(34, 193, 195));
 
-        // Center the form
-        JPanel centerPanel = ne JPanel();
-        centerPanel.add(panel); 
-        centerPanel.setBackground(new Color(255, 255, 255));
+        formPanel.add(signUpLabel);
+        formPanel.add(Box.createVerticalStrut(20));
+        formPanel.add(usernameField);
+        formPanel.add(Box.createVerticalStrut(15));
+        formPanel.add(passwordField);
+        formPanel.add(Box.createVerticalStrut(20));
+        formPanel.add(signUpButton);
+        formPanel.add(Box.createVerticalStrut(10));
+        formPanel.add(backButton);
 
-        // Add the centered panel to the frame
-        add(centerPanel, BorderLayout.CENTER);
+        background.add(formPanel);
 
-        // Sign-up button action
         signUpButton.addActionListener(e -> signUpUser());
+        backButton.addActionListener(e -> {
+            new LoginFrame().setVisible(true);
+            this.dispose();
+        });
+    }
+
+    private void styleInputField(JTextField field, String placeholder) {
+        field.setMaximumSize(new Dimension(300, 40));
+        field.setFont(new Font("Arial", Font.PLAIN, 16));
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.LIGHT_GRAY),
+                BorderFactory.createEmptyBorder(5, 10, 5, 10)));
+        field.setText(placeholder);
+        field.setForeground(Color.GRAY);
+        field.addFocusListener(new FocusAdapter() {
+            public void focusGained(FocusEvent e) {
+                if (field.getText().equals(placeholder)) {
+                    field.setText("");
+                    field.setForeground(Color.BLACK);
+                }
+            }
+
+            public void focusLost(FocusEvent e) {
+                if (field.getText().isEmpty()) {
+                    field.setForeground(Color.GRAY);
+                    field.setText(placeholder);
+                }
+            }
+        });
+    }
+
+    private void styleButton(JButton button, Color color) {
+        button.setBackground(color);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setFont(new Font("Arial", Font.BOLD, 14));
+        button.setAlignmentX(Component.CENTER_ALIGNMENT);
+        button.setMaximumSize(new Dimension(300, 40));
+        button.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        button.addMouseListener(new MouseAdapter() {
+            Color original = color;
+
+            public void mouseEntered(MouseEvent e) {
+                button.setBackground(original.brighter());
+            }
+
+            public void mouseExited(MouseEvent e) {
+                button.setBackground(original);
+            }
+        });
     }
 
     private void signUpUser() {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
-        // Send sign-up details to the server to add the new user
         try (Socket socket = new Socket("localhost", 12345);
-             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-             DataInputStream in = new DataInputStream(socket.getInputStream())) {
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-            out.writeUTF("signup"); // Send 'signup' request
-            out.writeUTF(username);  // Send username
-            out.writeUTF(password);  // Send plain password (no hashing needed)
+            out.writeUTF("signup");
+            out.writeUTF(username);
+            out.writeUTF(password);
 
             String response = in.readUTF();
             if ("Signup successful".equals(response)) {
                 JOptionPane.showMessageDialog(this, "Sign-up successful!");
-                this.dispose();  // Close the sign-up screen after success
-                new LoginFrame().setVisible(true);  // Show the login screen again
+                new LoginFrame().setVisible(true);
+                this.dispose();
             } else {
                 JOptionPane.showMessageDialog(this, "Username already exists", "Error", JOptionPane.ERROR_MESSAGE);
             }

@@ -2,87 +2,128 @@ package client;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.*;
 import java.net.*;
 
-class LoginFrame extends JFrame {
+public class LoginFrame extends JFrame {
     private JTextField usernameField;
     private JPasswordField passwordField;
-    private JButton loginButton, signupButton;
+    private JButton loginButton, signUpButton;
 
     public LoginFrame() {
         setTitle("Login");
-        setSize(400, 300);
+        setSize(500, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Set a background color for the window
-        getContentPane().setBackground(new Color(255, 255, 255));
-        setLayout(new BorderLayout());
+        GradientPanel background = new GradientPanel();
+        background.setLayout(new GridBagLayout());
+        setContentPane(background);
 
-        // Add a panel to hold the login form components
-        JPanel panel = new JPanel();
-        panel.setLayout(new GridLayout(4, 2, 10, 10));
-        panel.setBackground(new Color(255, 255, 255));
+        JPanel formPanel = new JPanel();
+        formPanel.setLayout(new BoxLayout(formPanel, BoxLayout.Y_AXIS));
+        formPanel.setBackground(new Color(255, 255, 255, 220));
+        formPanel.setBorder(BorderFactory.createEmptyBorder(30, 40, 30, 40));
 
-        // Label for username and password
-        JLabel usernameLabel = new JLabel("Username:");
-        JLabel passwordLabel = new JLabel("Password:");
-        usernameLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        passwordLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        JLabel loginLabel = new JLabel("LOGIN");
+        loginLabel.setFont(new Font("Arial", Font.BOLD, 24));
+        loginLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        loginLabel.setForeground(new Color(0, 51, 102));
 
-        // Initialize components
         usernameField = new JTextField(20);
         passwordField = new JPasswordField(20);
-        loginButton = new JButton("Login");
-        signupButton = new JButton("Sign Up");
+        styleInputField(usernameField, "Username");
+        styleInputField(passwordField, "Password");
 
-        // Style the buttons
-        loginButton.setBackground(new Color(34, 193, 195));
-        loginButton.setForeground(Color.WHITE);
-        signupButton.setBackground(new Color(253, 181, 28));
-        signupButton.setForeground(Color.WHITE);
+        loginButton = new JButton("LOGIN");
+        signUpButton = new JButton("SIGN UP");
 
-        // Add components to the panel
-        panel.add(usernameLabel);
-        panel.add(usernameField);
-        panel.add(passwordLabel);
-        panel.add(passwordField);
-        panel.add(new JLabel()); // Empty space
-        panel.add(new JLabel()); // Empty space
-        panel.add(loginButton);
-        panel.add(signupButton);
+        styleButton(loginButton, new Color(34, 193, 195));
+        styleButton(signUpButton, new Color(253, 181, 28));
 
-        // Center the form
-        JPanel centerPanel = new JPanel();
-        centerPanel.add(panel);
-        centerPanel.setBackground(new Color(255, 255, 255));
+        formPanel.add(loginLabel);
+        formPanel.add(Box.createVerticalStrut(20));
+        formPanel.add(usernameField);
+        formPanel.add(Box.createVerticalStrut(15));
+        formPanel.add(passwordField);
+        formPanel.add(Box.createVerticalStrut(20));
+        formPanel.add(loginButton);
+        formPanel.add(Box.createVerticalStrut(10));
+        formPanel.add(signUpButton);
 
-        // Add the centered panel to the frame
-        add(centerPanel, BorderLayout.CENTER);
+        background.add(formPanel);
 
-        // Action listeners for buttons
         loginButton.addActionListener(e -> loginUser());
-        signupButton.addActionListener(e -> openSignUpFrame());
+        signUpButton.addActionListener(e -> openSignUpFrame());
+    }
+
+    private void styleInputField(JTextField field, String placeholder) {
+        field.setMaximumSize(new Dimension(300, 40));
+        field.setFont(new Font("Arial", Font.PLAIN, 16));
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.LIGHT_GRAY),
+                BorderFactory.createEmptyBorder(5, 10, 5, 10)));
+        field.setText(placeholder);
+        field.setForeground(Color.GRAY);
+        field.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusGained(java.awt.event.FocusEvent evt) {
+                if (field.getText().equals(placeholder)) {
+                    field.setText("");
+                    field.setForeground(Color.BLACK);
+                }
+            }
+
+            public void focusLost(java.awt.event.FocusEvent evt) {
+                if (field.getText().isEmpty()) {
+                    field.setForeground(Color.GRAY);
+                    field.setText(placeholder);
+                }
+            }
+        });
+    }
+
+    private void styleButton(JButton button, Color color) {
+        button.setBackground(color);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setFont(new Font("Arial", Font.BOLD, 14));
+        button.setAlignmentX(Component.CENTER_ALIGNMENT);
+        button.setMaximumSize(new Dimension(300, 40));
+        button.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        // Hover effect
+        button.addMouseListener(new MouseAdapter() {
+            Color original = color;
+
+            public void mouseEntered(MouseEvent e) {
+                button.setBackground(original.brighter());
+            }
+
+            public void mouseExited(MouseEvent e) {
+                button.setBackground(original);
+            }
+        });
     }
 
     private void loginUser() {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
-        // Send login details to the server for validation
         try (Socket socket = new Socket("localhost", 12345);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-            out.writeUTF("login"); // Send 'login' request
-            out.writeUTF(username); // Send username
-            out.writeUTF(password); // Send plain password (no hashing needed)
+            out.writeUTF("login");
+            out.writeUTF(username);
+            out.writeUTF(password);
 
             String response = in.readUTF();
             if ("Login successful".equals(response)) {
                 JOptionPane.showMessageDialog(this, "Login successful!");
-                // Proceed to the editor screen or next part of the application
+                // Open editor screen
             } else {
                 JOptionPane.showMessageDialog(this, "Invalid credentials", "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -93,6 +134,6 @@ class LoginFrame extends JFrame {
 
     private void openSignUpFrame() {
         new SignUpFrame().setVisible(true);
-        this.dispose(); // Close the login screen
+        this.dispose();
     }
 }
