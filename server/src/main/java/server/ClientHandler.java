@@ -36,13 +36,17 @@ public class ClientHandler extends Thread {
     }
 
     private void handleLogin() throws IOException {
+        System.out.println("Handling login request");
         String username = in.readUTF();
         String password = in.readUTF();
+        System.out.println("Username: " + username + ", Password: " + password);
         boolean isValid = validateUser(username, password);
         if (isValid) {
             out.writeUTF("Login successful");
+            System.out.println("User " + username + " logged in successfully.");
         } else {
             out.writeUTF("Invalid credentials");
+            System.out.println("Invalid login attempt for user " + username);
         }
     }
 
@@ -60,7 +64,6 @@ public class ClientHandler extends Thread {
     }
 
     private boolean validateUser(String username, String password) {
-        String passwordHash = BCrypt.hashpw(password, BCrypt.gensalt());
-        return Database.validateUser(username, passwordHash);
+        return Database.validateUser(username, password);
     }
 }

@@ -2,6 +2,8 @@ package server;
 
 import java.sql.*;
 
+import org.mindrot.jbcrypt.BCrypt;
+
 public class Database {
     private static final String DB_URL = "jdbc:sqlite:editor.db"; // Adjust the path as needed
 
@@ -51,15 +53,22 @@ public class Database {
 
     // Check if the user exists and the password is correct
     public static boolean validateUser(String username, String passwordHash) {
-        String query = "SELECT * FROM users WHERE username = ? AND password_hash = ?";
+        System.out.println("Validating user: " + username + ", Password hash: " + passwordHash);
+        String query = "SELECT password_hash FROM users WHERE username = ?";
         try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
             pstmt.setString(1, username);
-            pstmt.setString(2, passwordHash);
             ResultSet rs = pstmt.executeQuery();
-            return rs.next(); // Returns true if a user with matching credentials is found
+            if (rs.next()) {
+                // Retrieve the stored hashed password from the database
+                String storedHash = rs.getString("password_hash");
+                System.out.println("Stored hash: " + storedHash);
+                System.out.println("Entered hash: " + passwordHash);
+                // Compare the entered password with the stored hashed password
+                return BCrypt.checkpw(passwordHash, storedHash); // Returns true if passwords match
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        return false;
+        return false; // Invalid credentialsF
     }
 }
