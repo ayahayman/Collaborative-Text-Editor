@@ -1,19 +1,18 @@
-package client;
-
+package client.loginFrames;
 import javax.swing.*;
+
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.io.*;
 import java.net.*;
 
-public class LoginFrame extends JFrame {
+public class SignUpFrame extends JFrame {
     private JTextField usernameField;
     private JPasswordField passwordField;
-    private JButton loginButton, signUpButton;
+    private JButton signUpButton, backButton;
 
-    public LoginFrame() {
-        setTitle("Login");
+    public SignUpFrame() {
+        setTitle("Sign Up");
         setSize(500, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -27,36 +26,39 @@ public class LoginFrame extends JFrame {
         formPanel.setBackground(new Color(255, 255, 255, 220));
         formPanel.setBorder(BorderFactory.createEmptyBorder(30, 40, 30, 40));
 
-        JLabel loginLabel = new JLabel("LOGIN");
-        loginLabel.setFont(new Font("Arial", Font.BOLD, 24));
-        loginLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        loginLabel.setForeground(new Color(0, 51, 102));
+        JLabel signUpLabel = new JLabel("SIGN UP");
+        signUpLabel.setFont(new Font("Arial", Font.BOLD, 24));
+        signUpLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        signUpLabel.setForeground(new Color(0, 51, 102));
 
         usernameField = new JTextField(20);
         passwordField = new JPasswordField(20);
         styleInputField(usernameField, "Username");
         styleInputField(passwordField, "Password");
 
-        loginButton = new JButton("LOGIN");
-        signUpButton = new JButton("SIGN UP");
+        signUpButton = new JButton("CREATE ACCOUNT");
+        backButton = new JButton("BACK TO LOGIN");
 
-        styleButton(loginButton, new Color(34, 193, 195));
         styleButton(signUpButton, new Color(253, 181, 28));
+        styleButton(backButton, new Color(34, 193, 195));
 
-        formPanel.add(loginLabel);
+        formPanel.add(signUpLabel);
         formPanel.add(Box.createVerticalStrut(20));
         formPanel.add(usernameField);
         formPanel.add(Box.createVerticalStrut(15));
         formPanel.add(passwordField);
         formPanel.add(Box.createVerticalStrut(20));
-        formPanel.add(loginButton);
-        formPanel.add(Box.createVerticalStrut(10));
         formPanel.add(signUpButton);
+        formPanel.add(Box.createVerticalStrut(10));
+        formPanel.add(backButton);
 
         background.add(formPanel);
 
-        loginButton.addActionListener(e -> loginUser());
-        signUpButton.addActionListener(e -> openSignUpFrame());
+        signUpButton.addActionListener(e -> signUpUser());
+        backButton.addActionListener(e -> {
+            new LoginFrame().setVisible(true);
+            this.dispose();
+        });
     }
 
     private void styleInputField(JTextField field, String placeholder) {
@@ -67,15 +69,15 @@ public class LoginFrame extends JFrame {
                 BorderFactory.createEmptyBorder(5, 10, 5, 10)));
         field.setText(placeholder);
         field.setForeground(Color.GRAY);
-        field.addFocusListener(new java.awt.event.FocusAdapter() {
-            public void focusGained(java.awt.event.FocusEvent evt) {
+        field.addFocusListener(new FocusAdapter() {
+            public void focusGained(FocusEvent e) {
                 if (field.getText().equals(placeholder)) {
                     field.setText("");
                     field.setForeground(Color.BLACK);
                 }
             }
 
-            public void focusLost(java.awt.event.FocusEvent evt) {
+            public void focusLost(FocusEvent e) {
                 if (field.getText().isEmpty()) {
                     field.setForeground(Color.GRAY);
                     field.setText(placeholder);
@@ -94,7 +96,6 @@ public class LoginFrame extends JFrame {
         button.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
         button.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
-        // Hover effect
         button.addMouseListener(new MouseAdapter() {
             Color original = color;
 
@@ -108,7 +109,7 @@ public class LoginFrame extends JFrame {
         });
     }
 
-    private void loginUser() {
+    private void signUpUser() {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
@@ -116,24 +117,20 @@ public class LoginFrame extends JFrame {
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-            out.writeUTF("login");
+            out.writeUTF("signup");
             out.writeUTF(username);
             out.writeUTF(password);
 
             String response = in.readUTF();
-            if ("Login successful".equals(response)) {
-                JOptionPane.showMessageDialog(this, "Login successful!");
-                // Open editor screen
+            if ("Signup successful".equals(response)) {
+                JOptionPane.showMessageDialog(this, "Sign-up successful!");
+                new LoginFrame().setVisible(true);
+                this.dispose();
             } else {
-                JOptionPane.showMessageDialog(this, "Invalid credentials", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Username already exists", "Error", JOptionPane.ERROR_MESSAGE);
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    private void openSignUpFrame() {
-        new SignUpFrame().setVisible(true);
-        this.dispose();
     }
 }

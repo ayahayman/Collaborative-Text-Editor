@@ -1,5 +1,4 @@
-package client;
-
+package client.loginFrames;
 import javax.swing.*;
 import java.awt.*;
 

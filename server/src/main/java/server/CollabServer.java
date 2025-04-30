@@ -9,6 +9,8 @@ public class CollabServer {
     public static void main(String[] args) {
         // Initialize the database and create the users table if it doesn't exist
         Database.createUsersTable();
+        Database.createDocumentsTable();
+        Database.createSharingTable();
 
         // Start the server to listen for client connections
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {

@@ -1,0 +1,205 @@
+package client.documentFrames;
+
+import javax.swing.*;
+
+import client.loginFrames.GradientPanel;
+
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.net.*;
+import java.util.ArrayList;
+
+public class DocumentsFrame extends JFrame {
+    private JPanel documentGrid;
+    private JButton newDocumentButton;
+    private JButton joinDocumentButton;
+    private int userId;
+
+    public DocumentsFrame(int userId) {
+        this.userId = userId;
+
+        setTitle("My Documents");
+        setSize(900, 600);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+
+        GradientPanel background = new GradientPanel();
+        background.setLayout(new BorderLayout());
+        setContentPane(background);
+
+        JLabel titleLabel = new JLabel("MY DOCUMENTS");
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 28));
+        titleLabel.setForeground(new Color(0, 51, 102));
+        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        background.add(titleLabel, BorderLayout.NORTH);
+
+        documentGrid = new JPanel();
+        documentGrid.setLayout(new FlowLayout(FlowLayout.LEFT, 20, 20));
+        documentGrid.setBackground(Color.WHITE);
+
+        JScrollPane scrollPane = new JScrollPane(documentGrid);
+        background.add(scrollPane, BorderLayout.CENTER);
+
+        JPanel footerPanel = new JPanel();
+        footerPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 20, 10));
+        footerPanel.setOpaque(false);
+
+        newDocumentButton = new JButton("Create New Document");
+        joinDocumentButton = new JButton("Join Document");
+        styleButton(newDocumentButton, new Color(34, 193, 195));
+        styleButton(joinDocumentButton, new Color(253, 181, 28));
+
+        footerPanel.add(newDocumentButton);
+        footerPanel.add(joinDocumentButton);
+        background.add(footerPanel, BorderLayout.SOUTH);
+
+        newDocumentButton.addActionListener(e -> createNewDocument());
+        joinDocumentButton.addActionListener(e -> joinDocumentWithCode());
+
+        fetchDocuments();
+    }
+
+    private void styleButton(JButton button, Color color) {
+        button.setBackground(color);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setFont(new Font("Arial", Font.BOLD, 14));
+        button.setPreferredSize(new Dimension(180, 40));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        button.setBorder(BorderFactory.createEmptyBorder(5, 15, 5, 15));
+    }
+
+    private void fetchDocuments() {
+        try (Socket socket = new Socket("localhost", 12345);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+
+            out.writeUTF("getDocuments");
+            out.writeInt(userId);
+            int count = in.readInt();
+
+            documentGrid.removeAll();
+
+            for (int i = 0; i < count; i++) {
+                String docName = in.readUTF();
+                String code = in.readUTF();
+                documentGrid.add(createDocumentCard(docName, code));
+            }
+
+            documentGrid.revalidate();
+            documentGrid.repaint();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private JPanel createDocumentCard(String docName, String code) {
+        JPanel card = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(Color.WHITE);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+            }
+        };
+
+        card.setPreferredSize(new Dimension(160, 180));
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(220, 220, 220), 1),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)));
+        card.setBackground(new Color(245, 245, 245));
+
+        JLabel iconLabel;
+        try {
+            ImageIcon icon = new ImageIcon(getClass().getResource("src/assets/file_flat.png"));
+            Image scaled = icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH);
+            iconLabel = new JLabel(new ImageIcon(scaled));
+        } catch (Exception e) {
+            iconLabel = new JLabel(UIManager.getIcon("FileView.fileIcon"));
+            System.err.println("Fallback icon used due to missing src/assets/file_flat.png");
+        }
+        iconLabel.setPreferredSize(new Dimension(100, 100));
+        iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel nameLabel = new JLabel(docName);
+        nameLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        nameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        nameLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        card.add(Box.createVerticalGlue());
+        card.add(iconLabel);
+        card.add(Box.createVerticalStrut(10));
+        card.add(nameLabel);
+        card.add(Box.createVerticalGlue());
+
+        card.addMouseListener(new MouseAdapter() {
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    // Double-click from owner's document list = owner role
+                    new EditorFrame(docName, userId, "owner").setVisible(true);
+                }
+            }
+        });
+
+        return card;
+    }
+
+    private void createNewDocument() {
+        String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
+        if (name != null && !name.trim().isEmpty()) {
+            try (Socket socket = new Socket("localhost", 12345);
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+
+                out.writeUTF("createDocument");
+                out.writeInt(userId);
+                out.writeUTF(name);
+                out.writeUTF("");
+
+                String response = in.readUTF();
+                if (response.startsWith("Document created successfully")) {
+                    JOptionPane.showMessageDialog(this, response);
+                    fetchDocuments();
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to create document.", "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void joinDocumentWithCode() {
+        String code = JOptionPane.showInputDialog(this, "Enter Session Code:");
+        if (code != null && !code.trim().isEmpty()) {
+            try (Socket socket = new Socket("localhost", 12345);
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+
+                out.writeUTF("joinDocument");
+                out.writeInt(userId);
+                out.writeUTF(code);
+
+                String response = in.readUTF();
+                if (response.startsWith("Document joined successfully")) {
+                    String docName = in.readUTF();
+                    String docContent = in.readUTF();
+                    String role = response.contains("view") ? "viewer" : "editor";
+                    new EditorFrame(docName, userId, role).setVisible(true);
+
+                    fetchDocuments();
+                } else {
+                    JOptionPane.showMessageDialog(this, response, "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
