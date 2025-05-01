@@ -5,9 +5,6 @@ import javax.swing.*;
 import client.documentFrames.DocumentsFrame;
 import client.loginFrames.LoginFrame;
 
-import java.io.*;
-import java.net.*;
-
 public class ClientApp {
     public static void main(String[] args) {
         // Launch the login screen when the application starts

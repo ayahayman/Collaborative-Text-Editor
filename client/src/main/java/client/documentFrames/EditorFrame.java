@@ -5,10 +5,8 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.undo.*;
 import java.awt.*;
-import java.awt.event.*;
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
 public class EditorFrame extends JFrame {
     private JTextArea editorArea;
@@ -39,9 +37,6 @@ public class EditorFrame extends JFrame {
         JMenuItem importItem = new JMenuItem("Import");
         JMenuItem exportItem = new JMenuItem("Export");
 
-        importItem.addActionListener(e -> importFile());
-        exportItem.addActionListener(e -> exportFile());
-
         fileMenu.add(importItem);
         fileMenu.add(exportItem);
         menuBar.add(fileMenu);
@@ -49,15 +44,6 @@ public class EditorFrame extends JFrame {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton undoButton = new JButton("Undo");
         JButton redoButton = new JButton("Redo");
-
-        undoButton.addActionListener(e -> {
-            if (undoManager.canUndo())
-                undoManager.undo();
-        });
-        redoButton.addActionListener(e -> {
-            if (undoManager.canRedo())
-                undoManager.redo();
-        });
 
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
@@ -164,27 +150,4 @@ public class EditorFrame extends JFrame {
         }
     }
 
-    private void importFile() {
-        JFileChooser fileChooser = new JFileChooser();
-        if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                editorArea.read(reader, null);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    private void exportFile() {
-        JFileChooser fileChooser = new JFileChooser();
-        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-                editorArea.write(writer);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
 }
