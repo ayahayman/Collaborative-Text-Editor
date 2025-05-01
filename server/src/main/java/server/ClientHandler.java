@@ -68,6 +68,38 @@ public class ClientHandler extends Thread {
                         out.writeUTF("Invalid request type");
                         break;
                 }
+            String requestType = in.readUTF();
+            switch (requestType) {
+                case "login":
+                    handleLogin();
+                    break;
+                case "signup":
+                    handleSignup();
+                    break;
+                case "getDocuments":
+                    handleDocumentRequest();
+                    break;
+                case "createDocument":
+                    handleCreateDocument();
+                    break;
+                case "getDocumentContent":
+                    handleGetDocumentContent();
+                    break;
+                case "saveDocumentContent":
+                    handleSaveDocumentContent();
+                    break;
+                case "deleteDocument":
+                    handleDeleteDocument();
+                    break;
+                case "joinDocument":
+                    handleJoinDocument();
+                    break;
+                case "getSharingCode":
+                    handleGetSharingCode();
+                    break;
+                default:
+                    out.writeUTF("Invalid request type");
+                    break;
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -204,6 +236,24 @@ public class ClientHandler extends Thread {
         String newContent = in.readUTF();
         boolean saved = Database.updateDocumentContent(name, newContent); // Save in DB
         out.writeUTF(saved ? "Document updated successfully" : "Failed to save document");
+    }
+
+    private void handleDeleteDocument() throws IOException {
+        int userId = in.readInt();
+        String docName = in.readUTF();
+        
+        boolean isOwner = Database.isDocumentOwner(userId, docName);
+        if (!isOwner) {
+            out.writeUTF("You don't have permission to delete this document");
+            return;
+        }
+        
+        boolean deleted = Database.deleteDocument(docName);
+        if (deleted) {
+            out.writeUTF("Document deleted successfully");
+        } else {
+            out.writeUTF("Failed to delete document");
+        }
     }
 
     private void handleJoinDocument() throws IOException {

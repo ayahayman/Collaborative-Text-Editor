@@ -92,7 +92,7 @@ public class Database {
             e.printStackTrace();
         }
         ;
-        recreateDocumentsTable(); // Recreate the documents table to ensure the
+        // recreateDocumentsTable(); // Recreate the documents table to ensure the
         // correct schema
     }
 
@@ -110,7 +110,7 @@ public class Database {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        resetSharingCodesTable();
+        // resetSharingCodesTable();
     }
 
     public static void addDocument(String name, String content, int creatorId) {
@@ -359,4 +359,53 @@ public class Database {
         }
     }
 
+    public static boolean isDocumentOwner(int userId, String docName) {
+        String query = "SELECT creator_id FROM documents WHERE name = ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
+            pstmt.setString(1, docName);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt("creator_id") == userId;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+    
+    public static boolean deleteDocument(String docName) {
+        // First get the document ID
+        String getDocIdQuery = "SELECT id FROM documents WHERE name = ?";
+        try (Connection conn = connect()) {
+            int docId = -1;
+            
+            // Get document ID
+            try (PreparedStatement pstmt = conn.prepareStatement(getDocIdQuery)) {
+                pstmt.setString(1, docName);
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    docId = rs.getInt("id");
+                } else {
+                    return false; // Document not found
+                }
+            }
+            
+            // Delete sharing codes first (due to foreign key constraint)
+            String deleteSharingQuery = "DELETE FROM sharing_codes WHERE document_id = ?";
+            try (PreparedStatement pstmt = conn.prepareStatement(deleteSharingQuery)) {
+                pstmt.setInt(1, docId);
+                pstmt.executeUpdate();
+            }
+            
+            // Then delete the document
+            String deleteDocQuery = "DELETE FROM documents WHERE id = ?";
+            try (PreparedStatement pstmt = conn.prepareStatement(deleteDocQuery)) {
+                pstmt.setInt(1, docId);
+                return pstmt.executeUpdate() > 0;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
 }
