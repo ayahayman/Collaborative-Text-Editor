@@ -2,9 +2,13 @@ package server;
 
 import java.io.*;
 import java.net.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class CollabServer {
+
     public static final int PORT = 12345;
+    public static ConcurrentHashMap<String, CopyOnWriteArrayList<ClientHandler>> activeEditors = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
         // Initialize the database and create the users table if it doesn't exist

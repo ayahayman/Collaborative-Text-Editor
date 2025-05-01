@@ -1,14 +1,11 @@
 package client.documentFrames;
 
-import javax.swing.*;
-
 import client.loginFrames.GradientPanel;
-
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.net.*;
-import java.util.ArrayList;
+import javax.swing.*;
 
 public class DocumentsFrame extends JFrame {
     private JPanel documentGrid;

@@ -6,11 +6,17 @@ import java.io.*;
 import java.net.*;
 import java.sql.*;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ClientHandler extends Thread {
+
     private Socket clientSocket;
     private DataInputStream in;
     private DataOutputStream out;
+    private String currentDocument = null;
+    private int userId = -1; // Used for tracking the user
+    private String role = null; // Used for tracking the user's role (editor/viewer)
+    private boolean realTimeMode = false;
 
     public ClientHandler(Socket socket) {
         this.clientSocket = socket;
@@ -24,45 +30,58 @@ public class ClientHandler extends Thread {
 
     public void run() {
         try {
-            String requestType = in.readUTF();
-            switch (requestType) {
-                case "login":
-                    handleLogin();
-                    break;
-                case "signup":
-                    handleSignup();
-                    break;
-                case "getDocuments":
-                    handleDocumentRequest();
-                    break;
-                case "createDocument":
-                    handleCreateDocument();
-                    break;
-                case "getDocumentContent":
-                    handleGetDocumentContent();
-                    break;
-                case "saveDocumentContent":
-                    handleSaveDocumentContent();
-                    break;
-                case "joinDocument":
-                    handleJoinDocument();
-                    break;
-                case "getSharingCode":
-                    handleGetSharingCode();
-                    break;
-                default:
-                    out.writeUTF("Invalid request type");
-                    break;
+            while (true) {
+                String requestType = in.readUTF();
+                System.out.println("Received request: " + requestType); // 🔍 Add this line
+                switch (requestType) {
+                    case "login":
+                        handleLogin();
+                        break;
+                    case "signup":
+                        handleSignup();
+                        break;
+                    case "getDocuments":
+                        handleDocumentRequest();
+                        break;
+                    case "createDocument":
+                        handleCreateDocument();
+                        break;
+                    case "getDocumentContent":
+                        handleGetDocumentContent();
+                        break;
+                    case "saveDocumentContent":
+                        handleSaveDocumentContent();
+                        break;
+                    case "joinDocument":
+                        handleJoinDocument();
+                        break;
+                    case "getSharingCode":
+                        handleGetSharingCode();
+                        break;
+                    case "syncDocument":
+                        handleSyncDocument();
+                        break;
+                    case "edit":
+                        handleEditBroadcast();
+                        break;
+                    default:
+                        out.writeUTF("Invalid request type");
+                        break;
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
+            if (currentDocument != null) {
+                CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>()).remove(this);
+            }
             try {
                 clientSocket.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+
     }
 
     private void handleLogin() throws IOException {
@@ -94,8 +113,7 @@ public class ClientHandler extends Thread {
 
     private boolean validateUser(String username, String password) {
         String query = "SELECT password_hash FROM users WHERE username = ?";
-        try (Connection conn = Database.connect();
-                PreparedStatement pstmt = conn.prepareStatement(query)) {
+        try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
             pstmt.setString(1, username);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
@@ -110,8 +128,7 @@ public class ClientHandler extends Thread {
 
     private int getUserIdByUsername(String username) {
         String query = "SELECT id FROM users WHERE username = ?";
-        try (Connection conn = Database.connect();
-                PreparedStatement pstmt = conn.prepareStatement(query)) {
+        try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
             pstmt.setString(1, username);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
@@ -220,6 +237,39 @@ public class ClientHandler extends Thread {
         // Send them back to the client
         out.writeUTF(editorCode != null ? editorCode : "N/A");
         out.writeUTF(viewerCode != null ? viewerCode : "N/A");
+    }
+
+    private void handleSyncDocument() throws IOException {
+        this.currentDocument = in.readUTF();
+        this.userId = in.readInt();
+        this.role = in.readUTF();             // role
+        this.realTimeMode = true;
+
+        // Add this client to the global document editor list
+        CollabServer.activeEditors.putIfAbsent(currentDocument, new CopyOnWriteArrayList<>());
+        CollabServer.activeEditors.get(currentDocument).add(this);
+
+        System.out.println("User " + userId + " started real-time sync on document: " + currentDocument);
+    }
+
+    private void handleEditBroadcast() throws IOException {
+        int offset = in.readInt();
+        String inserted = in.readUTF();
+        int deletedLength = in.readInt();
+
+        // Broadcast this edit to all other clients editing this document
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+            if (client != this && client.realTimeMode) {
+                try {
+                    client.out.writeUTF("edit");
+                    client.out.writeInt(offset);
+                    client.out.writeUTF(inserted);
+                    client.out.writeInt(deletedLength);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
 }

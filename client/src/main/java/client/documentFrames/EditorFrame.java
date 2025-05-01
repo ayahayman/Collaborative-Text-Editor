@@ -1,14 +1,17 @@
 package client.documentFrames;
 
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.undo.*;
 import java.awt.*;
 import java.io.*;
 import java.net.*;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.BadLocationException;
+import javax.swing.undo.*;
 
 public class EditorFrame extends JFrame {
+
     private JTextArea editorArea;
     private JLabel codeLabel;
     private JLabel userListLabel;
@@ -16,6 +19,89 @@ public class EditorFrame extends JFrame {
     private int userId;
     private String role;
     private UndoManager undoManager = new UndoManager();
+    private Socket socket;
+    private DataOutputStream out;
+    private DataInputStream in;
+    private boolean isRemoteEdit = false;
+
+    private void connectToServer() {
+        try {
+            socket = new Socket("localhost", 12345);
+            out = new DataOutputStream(socket.getOutputStream());
+            in = new DataInputStream(socket.getInputStream());
+
+            // Notify server of intent to sync a document
+            out.writeUTF("syncDocument");
+            out.writeUTF(docName);
+            out.writeInt(userId);
+            out.writeUTF(role);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void startListeningThread() {
+        new Thread(() -> {
+            try {
+                while (true) {
+                    String msgType = in.readUTF();
+                    if (msgType.equals("edit")) {
+                        int offset = in.readInt();
+                        String inserted = in.readUTF();
+                        int deletedLength = in.readInt();
+
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                isRemoteEdit = true;
+
+                                if (deletedLength > 0) {
+                                    editorArea.getDocument().remove(offset, deletedLength);
+                                }
+
+                                if (!inserted.isEmpty()) {
+                                    editorArea.getDocument().insertString(offset, inserted, null);
+                                }
+
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            } finally {
+                                isRemoteEdit = false;
+                            }
+                        });
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void enableRealTimeSync() {
+        editorArea.getDocument().addUndoableEditListener(e -> {
+            if (isRemoteEdit) {
+                return;
+            }
+
+            UndoableEdit edit = e.getEdit();
+            if (edit instanceof AbstractDocument.DefaultDocumentEvent) {
+                AbstractDocument.DefaultDocumentEvent event = (AbstractDocument.DefaultDocumentEvent) edit;
+                int offset = event.getOffset();
+                int length = event.getLength();
+
+                if (event.getType() == DocumentEvent.EventType.INSERT) {
+                    try {
+                        String inserted = editorArea.getText(offset, length);
+                        sendEdit(offset, inserted, 0); // no deletion
+                    } catch (BadLocationException ex) {
+                        System.err.println("Error inserting text: " + ex.getMessage());
+                    }
+                } else if (event.getType() == DocumentEvent.EventType.REMOVE) {
+                    sendEdit(offset, "", length); // send deletion length
+                }
+            }
+        });
+    }
 
     public EditorFrame(String docName, int userId, String role) {
         this.docName = docName;
@@ -70,13 +156,19 @@ public class EditorFrame extends JFrame {
 
         fetchContentAndCode();
         addAutoSave();
+        if (!role.equals("viewer")) {
+            connectToServer();
+            startListeningThread();
+            enableRealTimeSync();
+        } else {
+            connectToServer();
+            startListeningThread();
+        }
     }
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket("localhost", 12345);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getDocumentContent");
             out.writeUTF(docName);
@@ -91,9 +183,7 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket("localhost", 12345);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getSharingCode");
             out.writeUTF(docName);
@@ -102,9 +192,9 @@ public class EditorFrame extends JFrame {
             String viewerCode = in.readUTF();
 
             if (role.equals("owner") || role.equals("editor")) {
-                codeLabel.setText("Document: " + docName +
-                        "  |  Editor Code: " + editorCode +
-                        "  |  Viewer Code: " + viewerCode);
+                codeLabel.setText("Document: " + docName
+                        + "  |  Editor Code: " + editorCode
+                        + "  |  Viewer Code: " + viewerCode);
             } else {
                 codeLabel.setText("Document: " + docName);
             }
@@ -135,15 +225,39 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket("localhost", 12345);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("saveDocumentContent");
             out.writeUTF(docName);
             out.writeUTF(editorArea.getText());
 
             in.readUTF();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+//Helper methods
+
+    private String getText(DocumentEvent e) {
+        try {
+            return editorArea.getText(e.getOffset(), e.getLength());
+        } catch (BadLocationException ex) {
+            ex.printStackTrace();
+            return "";
+        }
+    }
+
+    private String getRemovedText(DocumentEvent e) {
+        return "";
+    }
+
+    private void sendEdit(int offset, String inserted, int deletedLength) {
+        try {
+            out.writeUTF("edit");
+            out.writeInt(offset);
+            out.writeUTF(inserted);
+            out.writeInt(deletedLength);
 
         } catch (IOException e) {
             e.printStackTrace();
