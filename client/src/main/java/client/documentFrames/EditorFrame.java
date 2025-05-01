@@ -41,14 +41,19 @@ public class EditorFrame extends JFrame {
         JMenu fileMenu = new JMenu("File");
         JMenuItem importItem = new JMenuItem("Import");
         JMenuItem exportItem = new JMenuItem("Export");
+        
 
         fileMenu.add(importItem);
         fileMenu.add(exportItem);
         menuBar.add(fileMenu);
 
          // Add action listeners for import/export
-         importItem.addActionListener(e -> importDocument());
-         exportItem.addActionListener(e -> exportDocument()); 
+        importItem.addActionListener(e -> importDocument());
+        exportItem.addActionListener(e -> exportDocument()); 
+
+        JMenuItem deleteItem = new JMenuItem("Delete Document");
+        fileMenu.add(deleteItem);
+        deleteItem.addActionListener(e -> deleteCurrentDocument());
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton undoButton = new JButton("Undo");
@@ -156,6 +161,45 @@ public class EditorFrame extends JFrame {
 
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void deleteCurrentDocument() {
+        if (!role.equals("owner")) {
+            JOptionPane.showMessageDialog(this, 
+                "Only the document owner can delete this document", 
+                "Permission Denied", 
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        
+        int confirm = JOptionPane.showConfirmDialog(
+            this, 
+            "Are you sure you want to delete '" + docName + "'?",
+            "Confirm Delete",
+            JOptionPane.YES_NO_OPTION
+        );
+        
+        if (confirm == JOptionPane.YES_OPTION) {
+            try (Socket socket = new Socket("localhost", 12345);
+                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
+                
+                out.writeUTF("deleteDocument");
+                out.writeInt(userId);
+                out.writeUTF(docName);
+                
+                String response = in.readUTF();
+                if (response.equals("Document deleted successfully")) {
+                    JOptionPane.showMessageDialog(this, response);
+                    this.dispose(); // Close the editor window
+                } else {
+                    JOptionPane.showMessageDialog(this, response, "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Error connecting to server", "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 

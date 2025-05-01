@@ -131,11 +131,34 @@ public class DocumentsFrame extends JFrame {
         nameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         nameLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
+        // Add this to the createDocumentCard method (after creating the nameLabel)
+        JButton deleteButton = new JButton("Delete");
+        deleteButton.setFont(new Font("Arial", Font.PLAIN, 10));
+        deleteButton.setBackground(new Color(255, 100, 100));
+        deleteButton.setForeground(Color.WHITE);
+        deleteButton.setFocusPainted(false);
+        deleteButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        deleteButton.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(
+                DocumentsFrame.this, 
+                "Are you sure you want to delete '" + docName + "'?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION
+            );
+            
+            if (confirm == JOptionPane.YES_OPTION) {
+                deleteDocument(docName);
+            }
+        });
+
         card.add(Box.createVerticalGlue());
         card.add(iconLabel);
         card.add(Box.createVerticalStrut(10));
         card.add(nameLabel);
         card.add(Box.createVerticalGlue());
+        card.add(Box.createVerticalStrut(5));
+        card.add(deleteButton);
 
         card.addMouseListener(new MouseAdapter() {
             public void mouseClicked(MouseEvent e) {
@@ -172,6 +195,28 @@ public class DocumentsFrame extends JFrame {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    private void deleteDocument(String docName) {
+        try (Socket socket = new Socket("localhost", 12345);
+             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+             DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            
+            out.writeUTF("deleteDocument");
+            out.writeInt(userId);
+            out.writeUTF(docName);
+            
+            String response = in.readUTF();
+            if (response.equals("Document deleted successfully")) {
+                fetchDocuments(); // Refresh the document list
+                JOptionPane.showMessageDialog(this, response);
+            } else {
+                JOptionPane.showMessageDialog(this, response, "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Error connecting to server", "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
