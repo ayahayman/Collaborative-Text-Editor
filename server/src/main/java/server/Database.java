@@ -92,7 +92,7 @@ public class Database {
             e.printStackTrace();
         }
         ;
-        recreateDocumentsTable(); // Recreate the documents table to ensure the
+        // recreateDocumentsTable(); // Recreate the documents table to ensure the
         // correct schema
     }
 
@@ -110,7 +110,7 @@ public class Database {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        resetSharingCodesTable();
+        // resetSharingCodesTable();
     }
 
     public static void addDocument(String name, String content, int creatorId) {
