@@ -1,5 +1,7 @@
 package client.documentFrames;
 
+import crdt.CRDTChar;
+import crdt.CRDTDocument;
 import java.awt.*;
 import java.io.*;
 import java.net.*;
@@ -11,9 +13,10 @@ import javax.swing.text.BadLocationException;
 import javax.swing.undo.*;
 import java.nio.file.Files;
 import org.apache.poi.xwpf.usermodel.*;
-import org.apache.poi.util.Units;
-
 import javax.swing.filechooser.FileNameExtensionFilter;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class EditorFrame extends JFrame {
 
@@ -28,6 +31,7 @@ public class EditorFrame extends JFrame {
     private DataOutputStream out;
     private DataInputStream in;
     private boolean isRemoteEdit = false;
+    private CRDTDocument crdtDoc;
 
     private void connectToServer() {
         try {
@@ -75,6 +79,32 @@ public class EditorFrame extends JFrame {
                             }
                         });
                     }
+                    if (msgType.equals("crdt_insert")) {
+                        String value = in.readUTF();
+                        int idSize = in.readInt();
+                        List<Integer> id = new ArrayList<>();
+                        for (int i = 0; i < idSize; i++) {
+                            id.add(in.readInt());
+                        }
+                        String site = in.readUTF();
+
+                        CRDTChar remoteChar = new CRDTChar(value, id, site);
+                        crdtDoc.remoteInsert(remoteChar);
+
+                        updateTextArea();
+                    }
+
+                    if (msgType.equals("crdt_delete")) {
+                        int idSize = in.readInt();
+                        List<Integer> id = new ArrayList<>();
+                        for (int i = 0; i < idSize; i++) {
+                            id.add(in.readInt());
+                        }
+                        String site = in.readUTF();
+
+                        crdtDoc.deleteById(id, site);
+                        updateTextArea();
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -97,13 +127,32 @@ public class EditorFrame extends JFrame {
                 if (event.getType() == DocumentEvent.EventType.INSERT) {
                     try {
                         String inserted = editorArea.getText(offset, length);
-                        sendEdit(offset, inserted, 0); // no deletion
+
+                        for (int i = 0; i < inserted.length(); i++) {
+                            String ch = String.valueOf(inserted.charAt(i));
+                            int logicalPos = offset + i;
+
+                            // Insert into CRDT
+                            CRDTChar crdtChar = crdtDoc.localInsert(logicalPos, ch);
+
+                            // Send CRDTChar to server
+                            sendInsertCRDT(crdtChar);
+                        }
+
                     } catch (BadLocationException ex) {
-                        System.err.println("Error inserting text: " + ex.getMessage());
+                        ex.printStackTrace();
                     }
+
                 } else if (event.getType() == DocumentEvent.EventType.REMOVE) {
-                    sendEdit(offset, "", length); // send deletion length
+                    // You can only delete if the char exists in the CRDT
+                    for (int i = 0; i < length; i++) {
+                        CRDTChar toDelete = crdtDoc.getCharList().get(offset); // logical match
+                        sendDeleteCRDT(toDelete.id, toDelete.siteId);
+                        crdtDoc.deleteById(toDelete.id, toDelete.siteId);
+                    }
                 }
+
+                updateTextArea(); // Refresh editor with CRDT state
             }
         });
     }
@@ -112,6 +161,7 @@ public class EditorFrame extends JFrame {
         this.docName = docName;
         this.userId = userId;
         this.role = role;
+        this.crdtDoc = new CRDTDocument(String.valueOf(userId));
 
         setTitle("Editing: " + docName);
         setSize(900, 600);
@@ -127,15 +177,14 @@ public class EditorFrame extends JFrame {
         JMenu fileMenu = new JMenu("File");
         JMenuItem importItem = new JMenuItem("Import");
         JMenuItem exportItem = new JMenuItem("Export");
-        
 
         fileMenu.add(importItem);
         fileMenu.add(exportItem);
         menuBar.add(fileMenu);
 
-         // Add action listeners for import/export
+        // Add action listeners for import/export
         importItem.addActionListener(e -> importDocument());
-        exportItem.addActionListener(e -> exportDocument()); 
+        exportItem.addActionListener(e -> exportDocument());
 
         JMenuItem deleteItem = new JMenuItem("Delete Document");
         fileMenu.add(deleteItem);
@@ -253,29 +302,27 @@ public class EditorFrame extends JFrame {
 
     private void deleteCurrentDocument() {
         if (!role.equals("owner")) {
-            JOptionPane.showMessageDialog(this, 
-                "Only the document owner can delete this document", 
-                "Permission Denied", 
-                JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "Only the document owner can delete this document",
+                    "Permission Denied",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
-        
+
         int confirm = JOptionPane.showConfirmDialog(
-            this, 
-            "Are you sure you want to delete '" + docName + "'?",
-            "Confirm Delete",
-            JOptionPane.YES_NO_OPTION
+                this,
+                "Are you sure you want to delete '" + docName + "'?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION
         );
-        
+
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket("localhost", 12345);
-                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
-                
+            try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+
                 out.writeUTF("deleteDocument");
                 out.writeInt(userId);
                 out.writeUTF(docName);
-                
+
                 String response = in.readUTF();
                 if (response.equals("Document deleted successfully")) {
                     JOptionPane.showMessageDialog(this, response);
@@ -293,47 +340,46 @@ public class EditorFrame extends JFrame {
     private void importDocument() {
         JFileChooser fileChooser = new JFileChooser();
         fileChooser.setDialogTitle("Import Document");
-        
+
         // Set up file filters
         FileNameExtensionFilter docxFilter = new FileNameExtensionFilter("Word Document (.docx)", "docx");
         FileNameExtensionFilter txtFilter = new FileNameExtensionFilter("Text File (.txt)", "txt");
         fileChooser.addChoosableFileFilter(docxFilter);
         fileChooser.addChoosableFileFilter(txtFilter);
         fileChooser.setFileFilter(docxFilter); // Default to DOCX
-        
+
         int userSelection = fileChooser.showOpenDialog(this);
         if (userSelection == JFileChooser.APPROVE_OPTION) {
             File fileToImport = fileChooser.getSelectedFile();
             try {
                 String filePath = fileToImport.getPath().toLowerCase();
                 String importedContent;
-                
+
                 if (filePath.endsWith(".docx")) {
                     importedContent = importDocx(fileToImport);
                 } else {
                     // Plain text import
                     importedContent = new String(Files.readAllBytes(fileToImport.toPath()));
                 }
-                
+
                 editorArea.setText(importedContent);
                 saveContent(); // Save the imported content to the server
-                
-                JOptionPane.showMessageDialog(this, "Document imported successfully!", 
-                    "Import Success", JOptionPane.INFORMATION_MESSAGE);
+
+                JOptionPane.showMessageDialog(this, "Document imported successfully!",
+                        "Import Success", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Error importing file: " + ex.getMessage(), 
-                    "Import Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Error importing file: " + ex.getMessage(),
+                        "Import Error", JOptionPane.ERROR_MESSAGE);
                 ex.printStackTrace();
             }
         }
     }
-    
+
     private String importDocx(File file) throws IOException {
         StringBuilder content = new StringBuilder();
-        
-        try (FileInputStream fis = new FileInputStream(file);
-             XWPFDocument document = new XWPFDocument(fis)) {
-            
+
+        try (FileInputStream fis = new FileInputStream(file); XWPFDocument document = new XWPFDocument(fis)) {
+
             // Process each paragraph in the document
             for (XWPFParagraph paragraph : document.getParagraphs()) {
                 String text = paragraph.getText();
@@ -351,15 +397,19 @@ public class EditorFrame extends JFrame {
                             }
                         }
                     }
-                    
+
                     // Check for bold/italic formatting
                     boolean isBold = false;
                     boolean isItalic = false;
                     for (XWPFRun run : paragraph.getRuns()) {
-                        if (run.isBold()) isBold = true;
-                        if (run.isItalic()) isItalic = true;
+                        if (run.isBold()) {
+                            isBold = true;
+                        }
+                        if (run.isItalic()) {
+                            isItalic = true;
+                        }
                     }
-                    
+
                     if (isBold && isItalic) {
                         content.append("***").append(text).append("***\n");
                     } else if (isBold) {
@@ -371,7 +421,7 @@ public class EditorFrame extends JFrame {
                     }
                 }
             }
-            
+
             // Process tables if needed
             for (XWPFTable table : document.getTables()) {
                 for (XWPFTableRow row : table.getRows()) {
@@ -383,124 +433,129 @@ public class EditorFrame extends JFrame {
                 content.append("\n");
             }
         }
-        
+
         return content.toString();
     }
-   private void exportDocument() {
-    JFileChooser fileChooser = new JFileChooser();
-    fileChooser.setDialogTitle("Export Document");
-    
-    // Set up file filters
-    FileNameExtensionFilter docxFilter = new FileNameExtensionFilter("Word Document (.docx)", "docx");
-    FileNameExtensionFilter txtFilter = new FileNameExtensionFilter("Text File (.txt)", "txt");
-    fileChooser.addChoosableFileFilter(docxFilter);
-    fileChooser.addChoosableFileFilter(txtFilter);
-    fileChooser.setFileFilter(docxFilter); // Default to DOCX
-    
-    fileChooser.setSelectedFile(new File(docName + ".docx"));
-    
-    int userSelection = fileChooser.showSaveDialog(this);
-    if (userSelection == JFileChooser.APPROVE_OPTION) {
-        File fileToExport = fileChooser.getSelectedFile();
-        String filePath = fileToExport.getPath();
-        
-        // Ensure proper extension
-        if (fileChooser.getFileFilter() == docxFilter && !filePath.toLowerCase().endsWith(".docx")) {
-            fileToExport = new File(filePath + ".docx");
-        } else if (fileChooser.getFileFilter() == txtFilter && !filePath.toLowerCase().endsWith(".txt")) {
-            fileToExport = new File(filePath + ".txt");
-        }
-        
-        try {
-            if (fileChooser.getFileFilter() == docxFilter) {
-                exportAsDocx(fileToExport);
-            } else {
-                // Plain text export
-                Files.write(fileToExport.toPath(), editorArea.getText().getBytes());
-            }
-            
-            JOptionPane.showMessageDialog(this, "Document exported successfully!", 
-                "Export Success", JOptionPane.INFORMATION_MESSAGE);
-            
-            // Optionally open the exported file
-            if (Desktop.isDesktopSupported()) {
-                Desktop.getDesktop().open(fileToExport);
-            }
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error exporting file: " + ex.getMessage(), 
-                "Export Error", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-}
 
-private void exportAsDocx(File file) throws IOException {
-    try (XWPFDocument document = new XWPFDocument()) {
-        // Create a paragraph for the document title
-        // XWPFParagraph titleParagraph = document.createParagraph();
-        // titleParagraph.setAlignment(ParagraphAlignment.CENTER);
-        
-        // XWPFRun titleRun = titleParagraph.createRun();
-        // titleRun.setText(docName);
-        // titleRun.setBold(true);
-        // titleRun.setFontSize(16);
-        
-        // Add some space after title
-        // document.createParagraph();
-        
-        // Process the content
-        String[] lines = editorArea.getText().split("\n");
-        
-        for (String line : lines) {
-            XWPFParagraph paragraph = document.createParagraph();
-            XWPFRun run = paragraph.createRun();
-            
-            // Basic formatting - you can enhance this to detect markdown or other formatting
-            if (line.startsWith("# ")) {
-                run.setText(line.substring(2));
-                run.setBold(true);
-                run.setFontSize(14);
-            } else if (line.startsWith("## ")) {
-                run.setText(line.substring(3));
-                run.setBold(true);
-                run.setItalic(true);
-                run.setFontSize(12);
-            } else {
-                run.setText(line);
+    private void exportDocument() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Export Document");
+
+        // Set up file filters
+        FileNameExtensionFilter docxFilter = new FileNameExtensionFilter("Word Document (.docx)", "docx");
+        FileNameExtensionFilter txtFilter = new FileNameExtensionFilter("Text File (.txt)", "txt");
+        fileChooser.addChoosableFileFilter(docxFilter);
+        fileChooser.addChoosableFileFilter(txtFilter);
+        fileChooser.setFileFilter(docxFilter); // Default to DOCX
+
+        fileChooser.setSelectedFile(new File(docName + ".docx"));
+
+        int userSelection = fileChooser.showSaveDialog(this);
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            File fileToExport = fileChooser.getSelectedFile();
+            String filePath = fileToExport.getPath();
+
+            // Ensure proper extension
+            if (fileChooser.getFileFilter() == docxFilter && !filePath.toLowerCase().endsWith(".docx")) {
+                fileToExport = new File(filePath + ".docx");
+            } else if (fileChooser.getFileFilter() == txtFilter && !filePath.toLowerCase().endsWith(".txt")) {
+                fileToExport = new File(filePath + ".txt");
+            }
+
+            try {
+                if (fileChooser.getFileFilter() == docxFilter) {
+                    exportAsDocx(fileToExport);
+                } else {
+                    // Plain text export
+                    Files.write(fileToExport.toPath(), editorArea.getText().getBytes());
+                }
+
+                JOptionPane.showMessageDialog(this, "Document exported successfully!",
+                        "Export Success", JOptionPane.INFORMATION_MESSAGE);
+
+                // Optionally open the exported file
+                if (Desktop.isDesktopSupported()) {
+                    Desktop.getDesktop().open(fileToExport);
+                }
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error exporting file: " + ex.getMessage(),
+                        "Export Error", JOptionPane.ERROR_MESSAGE);
             }
         }
-        
-        // Save the document
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            document.write(out);
+    }
+
+    private void exportAsDocx(File file) throws IOException {
+        try (XWPFDocument document = new XWPFDocument()) {
+            // Create a paragraph for the document title
+            // XWPFParagraph titleParagraph = document.createParagraph();
+            // titleParagraph.setAlignment(ParagraphAlignment.CENTER);
+
+            // XWPFRun titleRun = titleParagraph.createRun();
+            // titleRun.setText(docName);
+            // titleRun.setBold(true);
+            // titleRun.setFontSize(16);
+            // Add some space after title
+            // document.createParagraph();
+            // Process the content
+            String[] lines = editorArea.getText().split("\n");
+
+            for (String line : lines) {
+                XWPFParagraph paragraph = document.createParagraph();
+                XWPFRun run = paragraph.createRun();
+
+                // Basic formatting - you can enhance this to detect markdown or other formatting
+                if (line.startsWith("# ")) {
+                    run.setText(line.substring(2));
+                    run.setBold(true);
+                    run.setFontSize(14);
+                } else if (line.startsWith("## ")) {
+                    run.setText(line.substring(3));
+                    run.setBold(true);
+                    run.setItalic(true);
+                    run.setFontSize(12);
+                } else {
+                    run.setText(line);
+                }
+            }
+
+            // Save the document
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                document.write(out);
+            }
         }
     }
-}
 
 //Helper methods
-
-    private String getText(DocumentEvent e) {
+    private void sendInsertCRDT(CRDTChar c) {
         try {
-            return editorArea.getText(e.getOffset(), e.getLength());
-        } catch (BadLocationException ex) {
-            ex.printStackTrace();
-            return "";
-        }
-    }
-
-    private String getRemovedText(DocumentEvent e) {
-        return "";
-    }
-
-    private void sendEdit(int offset, String inserted, int deletedLength) {
-        try {
-            out.writeUTF("edit");
-            out.writeInt(offset);
-            out.writeUTF(inserted);
-            out.writeInt(deletedLength);
-
+            out.writeUTF("crdt_insert");
+            out.writeUTF(c.value);
+            out.writeInt(c.id.size());
+            for (int i : c.id) {
+                out.writeInt(i);
+            }
+            out.writeUTF(c.siteId);
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-}
 
+    private void sendDeleteCRDT(List<Integer> id, String siteId) {
+        try {
+            out.writeUTF("crdt_delete");
+            out.writeInt(id.size());
+            for (int i : id) {
+                out.writeInt(i);
+            }
+            out.writeUTF(siteId);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void updateTextArea() {
+        isRemoteEdit = true;
+        editorArea.setText(crdtDoc.toPlainText());
+        isRemoteEdit = false;
+    }
+}

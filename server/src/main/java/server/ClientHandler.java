@@ -1,4 +1,3 @@
-
 package server;
 
 import org.mindrot.jbcrypt.BCrypt;
@@ -6,9 +5,9 @@ import org.mindrot.jbcrypt.BCrypt;
 import java.io.*;
 import java.net.*;
 import java.sql.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-
 
 public class ClientHandler extends Thread {
 
@@ -70,6 +69,13 @@ public class ClientHandler extends Thread {
                     case "edit":
                         handleEditBroadcast();
                         break;
+                    case "crdt_insert":
+                        handleCRDTInsert();
+                        break;
+                    case "crdt_delete":
+                        handleCRDTDelete();
+                        break;
+
                     default:
                         out.writeUTF("Invalid request type");
                         break;
@@ -88,8 +94,6 @@ public class ClientHandler extends Thread {
             }
         }
     }
-
-    
 
     private void handleLogin() throws IOException {
         String username = in.readUTF();
@@ -290,6 +294,59 @@ public class ClientHandler extends Thread {
                     client.out.writeInt(offset);
                     client.out.writeUTF(inserted);
                     client.out.writeInt(deletedLength);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    private void handleCRDTInsert() throws IOException {
+        String value = in.readUTF();
+        int idSize = in.readInt();
+        List<Integer> id = new ArrayList<>();
+        for (int i = 0; i < idSize; i++) {
+            id.add(in.readInt());
+        }
+        String site = in.readUTF();
+        System.out.println("Insert from " + site + ": " + value + " at ID " + id);
+        // Broadcast to other clients
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+            if (client != this && client.realTimeMode) {
+                try {
+                    client.out.writeUTF("crdt_insert");
+                    client.out.writeUTF(value);
+                    client.out.writeInt(idSize);
+                    for (int i : id) {
+                        client.out.writeInt(i);
+                    }
+                    client.out.writeUTF(site);
+                } catch (IOException e) {
+                    e.printStackTrace(); // Log but don’t crash
+                }
+            }
+        }
+
+    }
+
+    private void handleCRDTDelete() throws IOException {
+        int idSize = in.readInt();
+        List<Integer> id = new ArrayList<>();
+        for (int i = 0; i < idSize; i++) {
+            id.add(in.readInt());
+        }
+        String site = in.readUTF();
+        System.out.println("Delete from " + site + " at ID " + id);
+        // Broadcast to other clients
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+            if (client != this && client.realTimeMode) {
+                try {
+                    client.out.writeUTF("crdt_delete");
+                    client.out.writeInt(idSize);
+                    for (int i : id) {
+                        client.out.writeInt(i);
+                    }
+                    client.out.writeUTF(site);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
