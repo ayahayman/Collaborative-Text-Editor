@@ -9,9 +9,6 @@ import javax.swing.event.DocumentListener;
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.BadLocationException;
 import javax.swing.undo.*;
-import java.awt.*;
-import java.io.*;
-import java.net.*;
 import java.nio.file.Files;
 import org.apache.poi.xwpf.usermodel.*;
 import org.apache.poi.util.Units;
@@ -161,7 +158,6 @@ public class EditorFrame extends JFrame {
         editorArea.setFont(new Font("Monospaced", Font.PLAIN, 16));
         editorArea.setLineWrap(true);
         editorArea.setWrapStyleWord(true);
-        editorArea.getDocument().addUndoableEditListener(undoManager);
 
         JScrollPane scrollPane = new JScrollPane(editorArea);
         add(scrollPane, BorderLayout.CENTER);
@@ -190,7 +186,7 @@ public class EditorFrame extends JFrame {
             out.writeUTF("getDocumentContent");
             out.writeUTF(docName);
             String content = in.readUTF();
-            editorArea.setText(content);
+            SwingUtilities.invokeLater(() -> editorArea.setText(content));
             if (role.equals("viewer")) {
                 editorArea.setEditable(false);
             }
@@ -480,9 +476,6 @@ private void exportAsDocx(File file) throws IOException {
     }
 }
 
-}
-        }
-    }
 //Helper methods
 
     private String getText(DocumentEvent e) {
@@ -509,5 +502,5 @@ private void exportAsDocx(File file) throws IOException {
             e.printStackTrace();
         }
     }
-
 }
+

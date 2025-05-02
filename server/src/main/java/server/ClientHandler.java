@@ -1,3 +1,4 @@
+
 package server;
 
 import org.mindrot.jbcrypt.BCrypt;
@@ -7,6 +8,7 @@ import java.net.*;
 import java.sql.*;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+
 
 public class ClientHandler extends Thread {
 
@@ -28,11 +30,12 @@ public class ClientHandler extends Thread {
         }
     }
 
+    @Override
     public void run() {
         try {
             while (true) {
                 String requestType = in.readUTF();
-                System.out.println("Received request: " + requestType); // 🔍 Add this line
+                System.out.println("Received request: " + requestType);
                 switch (requestType) {
                     case "login":
                         handleLogin();
@@ -52,6 +55,9 @@ public class ClientHandler extends Thread {
                     case "saveDocumentContent":
                         handleSaveDocumentContent();
                         break;
+                    case "deleteDocument":
+                        handleDeleteDocument();
+                        break;
                     case "joinDocument":
                         handleJoinDocument();
                         break;
@@ -68,38 +74,6 @@ public class ClientHandler extends Thread {
                         out.writeUTF("Invalid request type");
                         break;
                 }
-            String requestType = in.readUTF();
-            switch (requestType) {
-                case "login":
-                    handleLogin();
-                    break;
-                case "signup":
-                    handleSignup();
-                    break;
-                case "getDocuments":
-                    handleDocumentRequest();
-                    break;
-                case "createDocument":
-                    handleCreateDocument();
-                    break;
-                case "getDocumentContent":
-                    handleGetDocumentContent();
-                    break;
-                case "saveDocumentContent":
-                    handleSaveDocumentContent();
-                    break;
-                case "deleteDocument":
-                    handleDeleteDocument();
-                    break;
-                case "joinDocument":
-                    handleJoinDocument();
-                    break;
-                case "getSharingCode":
-                    handleGetSharingCode();
-                    break;
-                default:
-                    out.writeUTF("Invalid request type");
-                    break;
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -113,8 +87,9 @@ public class ClientHandler extends Thread {
                 e.printStackTrace();
             }
         }
-
     }
+
+    
 
     private void handleLogin() throws IOException {
         String username = in.readUTF();
@@ -241,13 +216,13 @@ public class ClientHandler extends Thread {
     private void handleDeleteDocument() throws IOException {
         int userId = in.readInt();
         String docName = in.readUTF();
-        
+
         boolean isOwner = Database.isDocumentOwner(userId, docName);
         if (!isOwner) {
             out.writeUTF("You don't have permission to delete this document");
             return;
         }
-        
+
         boolean deleted = Database.deleteDocument(docName);
         if (deleted) {
             out.writeUTF("Document deleted successfully");
