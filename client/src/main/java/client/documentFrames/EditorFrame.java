@@ -555,7 +555,20 @@ public class EditorFrame extends JFrame {
 
     private void updateTextArea() {
         isRemoteEdit = true;
+
+        //  Get current cursor position
+        int caret = editorArea.getCaretPosition();
+
+        // Step 3: Update the full text
         editorArea.setText(crdtDoc.toPlainText());
+
+        //  Adjust cursor to stay near where it was
+        int newLength = editorArea.getText().length();
+        caret = Math.min(caret, newLength); // Prevent going out of bounds
+
+        editorArea.setCaretPosition(caret);
+
         isRemoteEdit = false;
     }
+
 }
