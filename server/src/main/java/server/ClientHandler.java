@@ -2,6 +2,8 @@ package server;
 
 import org.mindrot.jbcrypt.BCrypt;
 
+import crdt.CRDTChar;
+
 import java.io.*;
 import java.net.*;
 import java.sql.*;
@@ -74,6 +76,9 @@ public class ClientHandler extends Thread {
                         break;
                     case "crdt_delete":
                         handleCRDTDelete();
+                        break;
+                    case "crdt_sync":
+                        handleCRDTSync();
                         break;
 
                     default:
@@ -309,8 +314,18 @@ public class ClientHandler extends Thread {
             id.add(in.readInt());
         }
         String site = in.readUTF();
-        System.out.println("Insert from " + site + ": " + value + " at ID " + id);
-        // Broadcast to other clients
+
+        // Save it in CRDT storage
+        CRDTChar newChar = new CRDTChar(value, id, site);
+        CollabServer.crdtStorage.putIfAbsent(currentDocument, new ArrayList<>());
+        List<CRDTChar> crdtList = CollabServer.crdtStorage.get(currentDocument);
+        
+
+        if (!crdtList.contains(newChar)) {
+            crdtList.add(newChar);
+        }
+
+        // Broadcast to other clients (same as before)
         for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
@@ -322,11 +337,10 @@ public class ClientHandler extends Thread {
                     }
                     client.out.writeUTF(site);
                 } catch (IOException e) {
-                    e.printStackTrace(); // Log but don’t crash
+                    e.printStackTrace();
                 }
             }
         }
-
     }
 
     private void handleCRDTDelete() throws IOException {
@@ -353,5 +367,16 @@ public class ClientHandler extends Thread {
             }
         }
     }
-
+    private void handleCRDTSync() throws IOException {
+        List<CRDTChar> crdtList = CollabServer.crdtStorage.getOrDefault(currentDocument, new ArrayList<>());
+        out.writeInt(crdtList.size());
+        for (CRDTChar c : crdtList) {
+            out.writeUTF(c.value);
+            out.writeInt(c.id.size());
+            for (int i : c.id) {
+                out.writeInt(i);
+            }
+            out.writeUTF(c.siteId);
+        }
+    }
 }

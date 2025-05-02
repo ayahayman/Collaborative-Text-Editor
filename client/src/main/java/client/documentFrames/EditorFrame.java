@@ -220,10 +220,12 @@ public class EditorFrame extends JFrame {
         addAutoSave();
         if (!role.equals("viewer")) {
             connectToServer();
+            performCRDTSync();
             startListeningThread();
             enableRealTimeSync();
         } else {
             connectToServer();
+            performCRDTSync();
             startListeningThread();
         }
     }
@@ -548,6 +550,31 @@ public class EditorFrame extends JFrame {
                 out.writeInt(i);
             }
             out.writeUTF(siteId);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void performCRDTSync() {
+        try {
+            out.writeUTF("crdt_sync");
+            int count = in.readInt();
+
+            for (int i = 0; i < count; i++) {
+                String value = in.readUTF();
+                int idSize = in.readInt();
+                List<Integer> id = new ArrayList<>();
+                for (int j = 0; j < idSize; j++) {
+                    id.add(in.readInt());
+                }
+                String site = in.readUTF();
+
+                CRDTChar c = new CRDTChar(value, id, site);
+                crdtDoc.remoteInsert(c);
+            }
+
+            updateTextArea();
+
         } catch (IOException e) {
             e.printStackTrace();
         }
