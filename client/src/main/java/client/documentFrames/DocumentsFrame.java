@@ -68,7 +68,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void fetchDocuments() {
-        try (Socket socket = new Socket("localhost", 12345);
+        try (Socket socket = new Socket("192.168.100.249", 12345);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -138,12 +138,11 @@ public class DocumentsFrame extends JFrame {
 
         deleteButton.addActionListener(e -> {
             int confirm = JOptionPane.showConfirmDialog(
-                DocumentsFrame.this, 
-                "Are you sure you want to delete '" + docName + "'?",
-                "Confirm Delete",
-                JOptionPane.YES_NO_OPTION
-            );
-            
+                    DocumentsFrame.this,
+                    "Are you sure you want to delete '" + docName + "'?",
+                    "Confirm Delete",
+                    JOptionPane.YES_NO_OPTION);
+
             if (confirm == JOptionPane.YES_OPTION) {
                 deleteDocument(docName);
             }
@@ -172,7 +171,7 @@ public class DocumentsFrame extends JFrame {
     private void createNewDocument() {
         String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
         if (name != null && !name.trim().isEmpty()) {
-            try (Socket socket = new Socket("localhost", 12345);
+            try (Socket socket = new Socket("192.168.100.249", 12345);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -196,14 +195,14 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void deleteDocument(String docName) {
-        try (Socket socket = new Socket("localhost", 12345);
-             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-             DataInputStream in = new DataInputStream(socket.getInputStream())) {
-            
+        try (Socket socket = new Socket("192.168.100.249", 12345);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+
             out.writeUTF("deleteDocument");
             out.writeInt(userId);
             out.writeUTF(docName);
-            
+
             String response = in.readUTF();
             if (response.equals("Document deleted successfully")) {
                 fetchDocuments(); // Refresh the document list
@@ -220,7 +219,7 @@ public class DocumentsFrame extends JFrame {
     private void joinDocumentWithCode() {
         String code = JOptionPane.showInputDialog(this, "Enter Session Code:");
         if (code != null && !code.trim().isEmpty()) {
-            try (Socket socket = new Socket("localhost", 12345);
+            try (Socket socket = new Socket("192.168.100.249", 12345);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 

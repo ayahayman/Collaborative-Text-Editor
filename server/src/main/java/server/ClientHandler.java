@@ -8,7 +8,9 @@ import java.io.*;
 import java.net.*;
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ClientHandler extends Thread {
@@ -79,6 +81,9 @@ public class ClientHandler extends Thread {
                         break;
                     case "crdt_sync":
                         handleCRDTSync();
+                        break;
+                    case "cursor_update":
+                        handleCursorUpdate();
                         break;
 
                     default:
@@ -276,12 +281,20 @@ public class ClientHandler extends Thread {
     private void handleSyncDocument() throws IOException {
         this.currentDocument = in.readUTF();
         this.userId = in.readInt();
-        this.role = in.readUTF();             // role
+        this.role = in.readUTF();
         this.realTimeMode = true;
 
-        // Add this client to the global document editor list
+        // Insert this block right here:
         CollabServer.activeEditors.putIfAbsent(currentDocument, new CopyOnWriteArrayList<>());
         CollabServer.activeEditors.get(currentDocument).add(this);
+
+        CollabServer.cursorColors.putIfAbsent(currentDocument, new HashMap<>());
+
+        Map<Integer, String> docColors = CollabServer.cursorColors.get(currentDocument);
+        if (!docColors.containsKey(userId)) {
+            String[] palette = { "#FF0000", "#0000FF", "#008000", "#FFA500", "#800080", "#00CED1" };
+            docColors.put(userId, palette[docColors.size() % palette.length]);
+        }
 
         System.out.println("User " + userId + " started real-time sync on document: " + currentDocument);
     }
@@ -292,7 +305,8 @@ public class ClientHandler extends Thread {
         int deletedLength = in.readInt();
 
         // Broadcast this edit to all other clients editing this document
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
+                new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("edit");
@@ -319,14 +333,14 @@ public class ClientHandler extends Thread {
         CRDTChar newChar = new CRDTChar(value, id, site);
         CollabServer.crdtStorage.putIfAbsent(currentDocument, new ArrayList<>());
         List<CRDTChar> crdtList = CollabServer.crdtStorage.get(currentDocument);
-        
 
         if (!crdtList.contains(newChar)) {
             crdtList.add(newChar);
         }
 
         // Broadcast to other clients (same as before)
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
+                new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("crdt_insert");
@@ -352,7 +366,8 @@ public class ClientHandler extends Thread {
         String site = in.readUTF();
         System.out.println("Delete from " + site + " at ID " + id);
         // Broadcast to other clients
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
+                new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("crdt_delete");
@@ -367,6 +382,7 @@ public class ClientHandler extends Thread {
             }
         }
     }
+
     private void handleCRDTSync() throws IOException {
         List<CRDTChar> crdtList = CollabServer.crdtStorage.getOrDefault(currentDocument, new ArrayList<>());
         out.writeInt(crdtList.size());
@@ -379,4 +395,33 @@ public class ClientHandler extends Thread {
             out.writeUTF(c.siteId);
         }
     }
+
+    private void handleCursorUpdate() throws IOException {
+        int senderId = in.readInt();
+        String doc = in.readUTF();
+        int idSize = in.readInt();
+        List<Integer> crdtId = new ArrayList<>();
+        for (int i = 0; i < idSize; i++) {
+            crdtId.add(in.readInt());
+        }
+
+        String color = CollabServer.cursorColors.getOrDefault(doc, new HashMap<>()).getOrDefault(senderId, "#000000");
+
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(doc, new CopyOnWriteArrayList<>())) {
+            if (client.realTimeMode) {
+                try {
+                    client.out.writeUTF("cursor_update");
+                    client.out.writeInt(senderId);
+                    client.out.writeInt(idSize);
+                    for (int i : crdtId) {
+                        client.out.writeInt(i);
+                    }
+                    client.out.writeUTF(color);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
 }

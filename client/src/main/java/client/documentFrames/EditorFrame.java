@@ -2,6 +2,7 @@ package client.documentFrames;
 
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
+
 import java.awt.*;
 import java.io.*;
 import java.net.*;
@@ -14,9 +15,14 @@ import javax.swing.undo.*;
 import java.nio.file.Files;
 import org.apache.poi.xwpf.usermodel.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.Highlighter;
+import javax.swing.text.JTextComponent;
+import java.awt.geom.Rectangle2D;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class EditorFrame extends JFrame {
 
@@ -26,16 +32,26 @@ public class EditorFrame extends JFrame {
     private String docName;
     private int userId;
     private String role;
-    private UndoManager undoManager = new UndoManager();
     private Socket socket;
     private DataOutputStream out;
     private DataInputStream in;
     private boolean isRemoteEdit = false;
     private CRDTDocument crdtDoc;
+    private final Map<Integer, CursorData> remoteCursors = new HashMap<>();
+
+    private static class CursorData {
+        List<Integer> crdtId;
+        Color color;
+
+        CursorData(List<Integer> crdtId, Color color) {
+            this.crdtId = new ArrayList<>(crdtId);
+            this.color = color;
+        }
+    }
 
     private void connectToServer() {
         try {
-            socket = new Socket("localhost", 12345);
+            socket = new Socket("192.168.100.249", 12345);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
 
@@ -91,7 +107,7 @@ public class EditorFrame extends JFrame {
                         CRDTChar remoteChar = new CRDTChar(value, id, site);
                         crdtDoc.remoteInsert(remoteChar);
 
-                        updateTextArea();
+                        updateTextArea(true);
                     }
 
                     if (msgType.equals("crdt_delete")) {
@@ -103,8 +119,23 @@ public class EditorFrame extends JFrame {
                         String site = in.readUTF();
 
                         crdtDoc.deleteById(id, site);
-                        updateTextArea();
+                        updateTextArea(true);
                     }
+                    if (msgType.equals("cursor_update")) {
+                        int remoteUserId = in.readInt();
+                        int idSize = in.readInt();
+                        List<Integer> crdtId = new ArrayList<>();
+                        for (int i = 0; i < idSize; i++) {
+                            crdtId.add(in.readInt());
+                        }
+                        String colorHex = in.readUTF();
+                        Color color = Color.decode(colorHex);
+
+                        remoteCursors.put(remoteUserId, new CursorData(crdtId, color));
+
+                        SwingUtilities.invokeLater(this::repaintRemoteCursors);
+                    }
+
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -137,6 +168,19 @@ public class EditorFrame extends JFrame {
 
                             // Send CRDTChar to server
                             sendInsertCRDT(crdtChar);
+
+                            // Update own cursor to follow inserted char
+                            List<CRDTChar> chars = crdtDoc.getCharList();
+                            int idx = chars.indexOf(crdtChar);
+                            List<Integer> nextId = crdtChar.id;
+
+                            if (idx + 1 < chars.size()) {
+                                nextId = chars.get(idx + 1).id; // Use next char's ID
+                            }
+
+                            remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
+                            sendCursorUpdate(nextId);
+
                         }
 
                     } catch (BadLocationException ex) {
@@ -150,9 +194,23 @@ public class EditorFrame extends JFrame {
                         sendDeleteCRDT(toDelete.id, toDelete.siteId);
                         crdtDoc.deleteById(toDelete.id, toDelete.siteId);
                     }
+                    List<CRDTChar> updated = crdtDoc.getCharList();
+                    int newPos = Math.min(offset, updated.size());
+                    if (!updated.isEmpty()) {
+                        List<CRDTChar> chars = crdtDoc.getCharList();
+                        int idx = chars.indexOf(updated.get(newPos));
+                        List<Integer> nextId = updated.get(newPos).id;
+
+                        if (idx + 1 < chars.size()) {
+                            nextId = chars.get(idx).id;
+                        }
+
+                        remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
+                        sendCursorUpdate(nextId);
+                    }
                 }
 
-                updateTextArea(); // Refresh editor with CRDT state
+                updateTextArea(true); // Refresh editor with CRDT state
             }
         });
     }
@@ -228,11 +286,25 @@ public class EditorFrame extends JFrame {
             performCRDTSync();
             startListeningThread();
         }
+        editorArea.addCaretListener(e -> {
+            if (!isRemoteEdit) {
+                editorArea.getCaret().setVisible(true); // show caret when user moves it
+                updateOwnCursorCRDTIdFromCaret();
+            }
+        });
+
+    }
+
+    private Color getOwnCursorColor() {
+        CursorData data = remoteCursors.get(userId);
+        return (data != null) ? data.color : Color.BLACK; // fallback
     }
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket("192.168.100.249", 12345);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getDocumentContent");
             out.writeUTF(docName);
@@ -247,7 +319,9 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket("192.168.100.249", 12345);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getSharingCode");
             out.writeUTF(docName);
@@ -289,7 +363,9 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket("192.168.100.249", 12345);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("saveDocumentContent");
             out.writeUTF(docName);
@@ -315,11 +391,12 @@ public class EditorFrame extends JFrame {
                 this,
                 "Are you sure you want to delete '" + docName + "'?",
                 "Confirm Delete",
-                JOptionPane.YES_NO_OPTION
-        );
+                JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket("localhost", 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (Socket socket = new Socket("192.168.100.249", 12345);
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
                 out.writeUTF("deleteDocument");
                 out.writeInt(userId);
@@ -505,7 +582,8 @@ public class EditorFrame extends JFrame {
                 XWPFParagraph paragraph = document.createParagraph();
                 XWPFRun run = paragraph.createRun();
 
-                // Basic formatting - you can enhance this to detect markdown or other formatting
+                // Basic formatting - you can enhance this to detect markdown or other
+                // formatting
                 if (line.startsWith("# ")) {
                     run.setText(line.substring(2));
                     run.setBold(true);
@@ -527,7 +605,7 @@ public class EditorFrame extends JFrame {
         }
     }
 
-//Helper methods
+    // Helper methods
     private void sendInsertCRDT(CRDTChar c) {
         try {
             out.writeUTF("crdt_insert");
@@ -572,29 +650,106 @@ public class EditorFrame extends JFrame {
                 CRDTChar c = new CRDTChar(value, id, site);
                 crdtDoc.remoteInsert(c);
             }
-
-            updateTextArea();
+            updateTextArea(false);
+            editorArea.setCaretPosition(0);
+            editorArea.getCaret().setVisible(false);
 
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void updateTextArea() {
+    private void updateTextArea(boolean restoreCaret) {
         isRemoteEdit = true;
 
-        //  Get current cursor position
+        // Get current cursor position
         int caret = editorArea.getCaretPosition();
 
         editorArea.setText(crdtDoc.toPlainText());
 
-        //  Adjust cursor to stay near where it was
+        // Adjust cursor to stay near where it was
         int newLength = editorArea.getText().length();
         caret = Math.min(caret, newLength); // Prevent going out of bounds
 
-        editorArea.setCaretPosition(caret);
+        if (restoreCaret) {
+            editorArea.setCaretPosition(caret);
+        }
 
         isRemoteEdit = false;
+    }
+
+    private void repaintRemoteCursors() {
+        try {
+            Highlighter highlighter = editorArea.getHighlighter();
+            highlighter.removeAllHighlights();
+
+            List<CRDTChar> list = crdtDoc.getCharList();
+
+            for (CursorData data : remoteCursors.values()) {
+                int index = -1;
+
+                // Find index of CRDT ID in the character list
+                for (int i = 0; i < list.size(); i++) {
+                    if (list.get(i).id.equals(data.crdtId)) {
+                        index = i;
+                        break;
+                    }
+                }
+
+                if (index != -1) {
+                    int docLength = editorArea.getText().length();
+                    int safePos = Math.min(index, docLength == 0 ? 0 : docLength - 1);
+                    editorArea.getHighlighter().addHighlight(safePos, safePos, new ThinCursorPainter(data.color));
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static class ThinCursorPainter implements Highlighter.HighlightPainter {
+        private final Color color;
+
+        public ThinCursorPainter(Color color) {
+            this.color = color;
+        }
+
+        @Override
+        public void paint(Graphics g, int p0, int p1, Shape bounds, JTextComponent c) {
+            try {
+                Rectangle2D r = c.modelToView2D(p0); // Modern, safe alternative
+                g.setColor(color);
+                g.fillRect((int) r.getX(), (int) r.getY(), 2, (int) r.getHeight()); // Thin vertical bar
+            } catch (BadLocationException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void updateOwnCursorCRDTIdFromCaret() {
+        int caret = editorArea.getCaretPosition();
+        List<CRDTChar> chars = crdtDoc.getCharList();
+
+        if (!chars.isEmpty()) {
+            int index = Math.min(caret, chars.size() - 1); // position *after* caret
+            CRDTChar crdtChar = chars.get(index);
+            remoteCursors.put(userId, new CursorData(crdtChar.id, getOwnCursorColor()));
+            sendCursorUpdate(crdtChar.id);
+        }
+    }
+
+    private void sendCursorUpdate(List<Integer> id) {
+        try {
+            out.writeUTF("cursor_update");
+            out.writeInt(userId);
+            out.writeUTF(docName);
+            out.writeInt(id.size());
+            for (int i : id) {
+                out.writeInt(i);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
 }

@@ -115,7 +115,7 @@ public class LoginFrame extends JFrame {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
-        try (Socket socket = new Socket("localhost", 12345);
+        try (Socket socket = new Socket("192.168.100.249", 12345);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
