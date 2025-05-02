@@ -559,7 +559,6 @@ public class EditorFrame extends JFrame {
         //  Get current cursor position
         int caret = editorArea.getCaretPosition();
 
-        // Step 3: Update the full text
         editorArea.setText(crdtDoc.toPlainText());
 
         //  Adjust cursor to stay near where it was
