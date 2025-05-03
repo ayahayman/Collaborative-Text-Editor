@@ -3,6 +3,7 @@ package client.loginFrames;
 import javax.swing.*;
 
 import client.ClientApp;
+import client.ClientConnectionManager;
 
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -115,24 +116,25 @@ public class LoginFrame extends JFrame {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
-        try (Socket socket = new Socket("192.168.100.249", 12345);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try {
+            // Open shared connection
+            ClientConnectionManager.connect("192.168.100.249", 12345);
+            DataOutputStream out = ClientConnectionManager.getOut();
+            DataInputStream in = ClientConnectionManager.getIn();
 
-            out.writeUTF("login"); // Send login request
-            out.writeUTF(username); // Send username
-            out.writeUTF(password); // Send password
+            // Send login
+            out.writeUTF("login");
+            out.writeUTF(username);
+            out.writeUTF(password);
 
             String response = in.readUTF();
             if ("Login successful".equals(response)) {
-                // Read the user ID from the server
-                int userId = in.readInt(); // Expect the server to send the user ID after success
+                int userId = in.readInt();
                 JOptionPane.showMessageDialog(this, "Login successful!");
 
-                // Open the Documents frame and pass the user ID
+                // Launch app using persistent socket
                 ClientApp.openDocumentsFrame(userId);
 
-                // Close the login screen
                 this.dispose();
             } else {
                 JOptionPane.showMessageDialog(this, "Invalid credentials", "Error", JOptionPane.ERROR_MESSAGE);

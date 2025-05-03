@@ -2,6 +2,8 @@ package client.documentFrames;
 
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
+import javafx.stage.WindowEvent;
+import java.awt.event.WindowAdapter;
 
 import java.awt.*;
 import java.io.*;
@@ -38,6 +40,8 @@ public class EditorFrame extends JFrame {
     private boolean isRemoteEdit = false;
     private CRDTDocument crdtDoc;
     private final Map<Integer, CursorData> remoteCursors = new HashMap<>();
+    private DefaultListModel<String> activeUserListModel;
+    private JList<String> activeUserList;
 
     private static class CursorData {
         List<Integer> crdtId;
@@ -135,6 +139,14 @@ public class EditorFrame extends JFrame {
 
                         SwingUtilities.invokeLater(this::repaintRemoteCursors);
                     }
+                    if (msgType.equals("remove_cursor")) {
+                        int remoteUserId = in.readInt();
+
+                        SwingUtilities.invokeLater(() -> {
+                            remoteCursors.remove(remoteUserId);
+                            repaintRemoteCursors();
+                        });
+                    }
 
                 }
             } catch (IOException e) {
@@ -170,12 +182,14 @@ public class EditorFrame extends JFrame {
                             sendInsertCRDT(crdtChar);
 
                             // Update own cursor to follow inserted char
-                            List<CRDTChar> chars = crdtDoc.getCharList();
-                            int idx = chars.indexOf(crdtChar);
+                            List<CRDTChar> updated = crdtDoc.getCharList();
+                            int newPos = updated.indexOf(crdtChar);
                             List<Integer> nextId = crdtChar.id;
-
-                            if (idx + 1 < chars.size()) {
-                                nextId = chars.get(idx + 1).id; // Use next char's ID
+                            if (newPos + 1 < updated.size()) {
+                                nextId = updated.get(newPos + 1).id;
+                            } else {
+                                // Cursor is after the last character
+                                nextId = List.of(-1); // Special cursor marker (handled in repaintRemoteCursors)
                             }
 
                             remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
@@ -188,26 +202,31 @@ public class EditorFrame extends JFrame {
                     }
 
                 } else if (event.getType() == DocumentEvent.EventType.REMOVE) {
-                    // You can only delete if the char exists in the CRDT
+                    List<CRDTChar> chars = crdtDoc.getCharList();
+
                     for (int i = 0; i < length; i++) {
-                        CRDTChar toDelete = crdtDoc.getCharList().get(offset); // logical match
-                        sendDeleteCRDT(toDelete.id, toDelete.siteId);
-                        crdtDoc.deleteById(toDelete.id, toDelete.siteId);
-                    }
-                    List<CRDTChar> updated = crdtDoc.getCharList();
-                    int newPos = Math.min(offset, updated.size());
-                    if (!updated.isEmpty()) {
-                        List<CRDTChar> chars = crdtDoc.getCharList();
-                        int idx = chars.indexOf(updated.get(newPos));
-                        List<Integer> nextId = updated.get(newPos).id;
-
-                        if (idx + 1 < chars.size()) {
-                            nextId = chars.get(idx).id;
+                        int targetIndex = Math.min(offset, chars.size() - 1); // Clamp to last valid index
+                        if (targetIndex >= 0 && targetIndex < chars.size()) {
+                            CRDTChar toDelete = chars.get(targetIndex);
+                            sendDeleteCRDT(toDelete.id, toDelete.siteId);
+                            crdtDoc.deleteById(toDelete.id, toDelete.siteId);
                         }
-
-                        remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
-                        sendCursorUpdate(nextId);
                     }
+
+                    // Update cursor position safely
+                    List<CRDTChar> updated = crdtDoc.getCharList();
+                    List<Integer> nextId;
+
+                    if (updated.isEmpty()) {
+                        nextId = List.of(-1); // Empty document, cursor at end
+                    } else if (offset >= updated.size()) {
+                        nextId = List.of(-1); // Cursor is logically after last character
+                    } else {
+                        nextId = updated.get(offset).id;
+                    }
+
+                    remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
+                    sendCursorUpdate(nextId);
                 }
 
                 updateTextArea(true); // Refresh editor with CRDT state
@@ -269,12 +288,25 @@ public class EditorFrame extends JFrame {
         JScrollPane scrollPane = new JScrollPane(editorArea);
         add(scrollPane, BorderLayout.CENTER);
 
-        userListLabel = new JLabel("Active Users: Anonymous Frog (you)");
-        userListLabel.setFont(new Font("Arial", Font.PLAIN, 12));
-        userListLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(userListLabel, BorderLayout.SOUTH);
+        activeUserListModel = new DefaultListModel<>();
+        activeUserList = new JList<>(activeUserListModel);
+        activeUserList.setFont(new Font("Arial", Font.PLAIN, 12));
+        activeUserList.setBorder(BorderFactory.createTitledBorder("Active Users"));
+        activeUserList.setBackground(new Color(245, 245, 245));
+        activeUserList.setPreferredSize(new Dimension(150, 0)); // Side panel width
+
+        add(activeUserList, BorderLayout.EAST);
 
         fetchContentAndCode();
+        fetchActiveUsers();
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                sendDisconnectSignal();
+            }
+        });
+
+        new javax.swing.Timer(3000, e -> fetchActiveUsers()).start();
         addAutoSave();
         if (!role.equals("viewer")) {
             connectToServer();
@@ -490,11 +522,11 @@ public class EditorFrame extends JFrame {
                     }
 
                     if (isBold && isItalic) {
-                        content.append("***").append(text).append("***\n");
+                        content.append("").append(text).append("\n");
                     } else if (isBold) {
-                        content.append("**").append(text).append("**\n");
+                        content.append("").append(text).append("\n");
                     } else if (isItalic) {
-                        content.append("*").append(text).append("*\n");
+                        content.append("").append(text).append("\n");
                     } else {
                         content.append(text).append("\n");
                     }
@@ -661,19 +693,22 @@ public class EditorFrame extends JFrame {
 
     private void updateTextArea(boolean restoreCaret) {
         isRemoteEdit = true;
-
-        // Get current cursor position
         int caret = editorArea.getCaretPosition();
 
-        editorArea.setText(crdtDoc.toPlainText());
+        String newText = crdtDoc.toPlainText();
+        if (!editorArea.getText().equals(newText)) {
+            editorArea.setText(newText);
+        }
 
-        // Adjust cursor to stay near where it was
         int newLength = editorArea.getText().length();
-        caret = Math.min(caret, newLength); // Prevent going out of bounds
+        caret = Math.min(caret, newLength);
 
         if (restoreCaret) {
             editorArea.setCaretPosition(caret);
         }
+
+        // Delay repaint of remote cursors so caret restores first
+        SwingUtilities.invokeLater(this::repaintRemoteCursors);
 
         isRemoteEdit = false;
     }
@@ -683,25 +718,31 @@ public class EditorFrame extends JFrame {
             Highlighter highlighter = editorArea.getHighlighter();
             highlighter.removeAllHighlights();
 
-            List<CRDTChar> list = crdtDoc.getCharList();
-
             for (CursorData data : remoteCursors.values()) {
                 int index = -1;
+                List<CRDTChar> list = crdtDoc.getCharList();
 
-                // Find index of CRDT ID in the character list
-                for (int i = 0; i < list.size(); i++) {
-                    if (list.get(i).id.equals(data.crdtId)) {
-                        index = i;
-                        break;
+                // Special case: after last character
+                if (data.crdtId.size() == 1 && data.crdtId.get(0) == -1) {
+                    index = list.size(); // virtual position after end
+                } else {
+                    // Find index of CRDT ID in the character list
+                    for (int i = 0; i < list.size(); i++) {
+                        if (list.get(i).id.equals(data.crdtId)) {
+                            index = i;
+                            break;
+                        }
                     }
                 }
 
                 if (index != -1) {
-                    int docLength = editorArea.getText().length();
-                    int safePos = Math.min(index, docLength == 0 ? 0 : docLength - 1);
-                    editorArea.getHighlighter().addHighlight(safePos, safePos, new ThinCursorPainter(data.color));
+                    int pos = Math.min(index, editorArea.getText().length());
+
+                    editorArea.getHighlighter().addHighlight(
+                            pos, pos, new ThinCursorPainter(data.color));
                 }
             }
+
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -720,8 +761,7 @@ public class EditorFrame extends JFrame {
                 Rectangle2D r = c.modelToView2D(p0); // Modern, safe alternative
                 g.setColor(color);
                 g.fillRect((int) r.getX(), (int) r.getY(), 2, (int) r.getHeight()); // Thin vertical bar
-            } catch (BadLocationException e) {
-                e.printStackTrace();
+            } catch (BadLocationException | IllegalArgumentException e) {
             }
         }
     }
@@ -730,12 +770,15 @@ public class EditorFrame extends JFrame {
         int caret = editorArea.getCaretPosition();
         List<CRDTChar> chars = crdtDoc.getCharList();
 
-        if (!chars.isEmpty()) {
-            int index = Math.min(caret, chars.size() - 1); // position *after* caret
-            CRDTChar crdtChar = chars.get(index);
-            remoteCursors.put(userId, new CursorData(crdtChar.id, getOwnCursorColor()));
-            sendCursorUpdate(crdtChar.id);
+        List<Integer> id;
+        if (caret >= chars.size()) {
+            id = List.of(-1); // Sentinel to indicate "after last char"
+        } else {
+            id = chars.get(caret).id;
         }
+
+        remoteCursors.put(userId, new CursorData(id, getOwnCursorColor()));
+        sendCursorUpdate(id);
     }
 
     private void sendCursorUpdate(List<Integer> id) {
@@ -747,6 +790,46 @@ public class EditorFrame extends JFrame {
             for (int i : id) {
                 out.writeInt(i);
             }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void fetchActiveUsers() {
+        new Thread(() -> {
+            try (Socket socket = new Socket("192.168.100.249", 12345);
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+
+                out.writeUTF("getActiveUsers");
+                out.writeUTF(docName);
+
+                int count = in.readInt();
+                List<String> userIds = new ArrayList<>();
+
+                for (int i = 0; i < count; i++) {
+                    int uid = in.readInt();
+                    userIds.add("User " + uid + (uid == userId ? " (You)" : ""));
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    activeUserListModel.clear();
+                    for (String user : userIds) {
+                        activeUserListModel.addElement(user);
+                    }
+                });
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void sendDisconnectSignal() {
+        try {
+            out.writeUTF("disconnectFromDocument");
+            out.writeUTF(docName);
+            out.writeInt(userId);
         } catch (IOException e) {
             e.printStackTrace();
         }

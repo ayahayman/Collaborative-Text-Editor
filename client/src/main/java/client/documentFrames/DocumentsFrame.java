@@ -1,5 +1,6 @@
 package client.documentFrames;
 
+import client.ClientConnectionManager;
 import client.loginFrames.GradientPanel;
 import java.awt.*;
 import java.awt.event.*;
@@ -68,9 +69,8 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void fetchDocuments() {
-        try (Socket socket = new Socket("192.168.100.249", 12345);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (DataOutputStream out = ClientConnectionManager.getOut();
+                DataInputStream in = ClientConnectionManager.getIn();) {
 
             out.writeUTF("getDocuments");
             out.writeInt(userId);
@@ -171,9 +171,8 @@ public class DocumentsFrame extends JFrame {
     private void createNewDocument() {
         String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
         if (name != null && !name.trim().isEmpty()) {
-            try (Socket socket = new Socket("192.168.100.249", 12345);
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (DataOutputStream out = ClientConnectionManager.getOut();
+                    DataInputStream in = ClientConnectionManager.getIn();) {
 
                 out.writeUTF("createDocument");
                 out.writeInt(userId);
@@ -195,9 +194,8 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void deleteDocument(String docName) {
-        try (Socket socket = new Socket("192.168.100.249", 12345);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (DataOutputStream out = ClientConnectionManager.getOut();
+                DataInputStream in = ClientConnectionManager.getIn();) {
 
             out.writeUTF("deleteDocument");
             out.writeInt(userId);
@@ -219,9 +217,8 @@ public class DocumentsFrame extends JFrame {
     private void joinDocumentWithCode() {
         String code = JOptionPane.showInputDialog(this, "Enter Session Code:");
         if (code != null && !code.trim().isEmpty()) {
-            try (Socket socket = new Socket("192.168.100.249", 12345);
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (DataOutputStream out = ClientConnectionManager.getOut();
+                    DataInputStream in = ClientConnectionManager.getIn();) {
 
                 out.writeUTF("joinDocument");
                 out.writeInt(userId);

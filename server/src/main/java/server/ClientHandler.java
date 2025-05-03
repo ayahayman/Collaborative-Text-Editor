@@ -85,6 +85,12 @@ public class ClientHandler extends Thread {
                     case "cursor_update":
                         handleCursorUpdate();
                         break;
+                    case "getActiveUsers":
+                        handleGetActiveUsers();
+                        break;
+                    case "disconnectFromDocument":
+                        handleDisconnectFromDocument();
+                        break;
 
                     default:
                         out.writeUTF("Invalid request type");
@@ -422,6 +428,38 @@ public class ClientHandler extends Thread {
                 }
             }
         }
+    }
+
+    private void handleGetActiveUsers() throws IOException {
+        String docName = in.readUTF();
+        List<ClientHandler> handlers = CollabServer.activeEditors.getOrDefault(docName, new CopyOnWriteArrayList<>());
+
+        out.writeInt(handlers.size());
+        for (ClientHandler handler : handlers) {
+            out.writeInt(handler.userId);
+        }
+    }
+
+    private void handleDisconnectFromDocument() throws IOException {
+        String doc = in.readUTF();
+        int uid = in.readInt();
+
+        List<ClientHandler> handlers = CollabServer.activeEditors.getOrDefault(doc, new CopyOnWriteArrayList<>());
+        handlers.removeIf(h -> h.userId == uid);
+
+        // Notify other users to remove the cursor
+        for (ClientHandler client : handlers) {
+            if (client.realTimeMode) {
+                try {
+                    client.out.writeUTF("remove_cursor");
+                    client.out.writeInt(uid); // Tell them which user to remove
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        System.out.println("User " + uid + " left document: " + doc);
     }
 
 }
