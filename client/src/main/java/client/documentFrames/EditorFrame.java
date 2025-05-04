@@ -76,6 +76,8 @@ public class EditorFrame extends JFrame {
     private DefaultListModel<String> activeUserListModel;
     private JList<String> activeUserList;
     private static String SERVER_HOST;
+    private static int PORT;
+
 
     private static class CursorData {
         List<Integer> crdtId;
@@ -89,7 +91,7 @@ public class EditorFrame extends JFrame {
 
     private void connectToServer() {
         try {
-            socket = new Socket(SERVER_HOST, 43013);
+            socket = new Socket(SERVER_HOST, PORT);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
 
@@ -271,8 +273,9 @@ public class EditorFrame extends JFrame {
         });
     }
 
-    public EditorFrame(String docName, int userId, String role, String serverHost) {
-        this.SERVER_HOST = serverHost;
+    public EditorFrame(String docName, int userId, String role, String serverHost, int port) {
+        SERVER_HOST = serverHost;
+        PORT=port;
         this.docName = docName;
         this.userId = userId;
         this.role = role;
@@ -372,7 +375,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket(SERVER_HOST, 43013);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -389,7 +392,7 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket(SERVER_HOST, 43013);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -449,7 +452,7 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket(SERVER_HOST, 43013);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -480,7 +483,7 @@ public class EditorFrame extends JFrame {
                 JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket(SERVER_HOST, 43013);
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -863,7 +866,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchActiveUsers() {
         new Thread(() -> {
-            try (Socket socket = new Socket(SERVER_HOST, 43013);
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
