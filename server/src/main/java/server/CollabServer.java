@@ -17,38 +17,25 @@ public class CollabServer {
     public static final Map<String, Map<Integer, String>> cursorColors = new HashMap<>();
 
     public static void main(String[] args) {
-        try {
-            System.out.println("🟢 Initializing database tables...");
-            Database.createUsersTable();
-            Database.createDocumentsTable();
-            Database.createSharingTable();
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            System.err.println("💥 Uncaught exception in thread " + thread.getName());
+            throwable.printStackTrace();
+        });
 
-            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-                System.out.println("✅ Server started on port " + PORT + ". Waiting for clients...");
+        Database.createUsersTable();
+        Database.createDocumentsTable();
+        Database.createSharingTable();
 
-                while (true) {
-                    try {
-                        Socket clientSocket = serverSocket.accept();
-                        System.out.println("🟡 New client connected: " + clientSocket.getInetAddress());
-
-                        ClientHandler clientHandler = new ClientHandler(clientSocket);
-                        new Thread(clientHandler).start();
-                    } catch (IOException e) {
-                        System.err.println("❌ Error while accepting client connection: " + e.getMessage());
-                        e.printStackTrace();
-                    } catch (Exception e) {
-                        System.err.println("❗ Unexpected error during client connection handling:");
-                        e.printStackTrace();
-                    }
-                }
-
-            } catch (IOException e) {
-                System.err.println("🚨 Failed to start server on port " + PORT + ": " + e.getMessage());
-                e.printStackTrace();
+        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+            System.out.println("Server started. Waiting for clients to connect...");
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("New client connected: " + clientSocket.getInetAddress());
+                ClientHandler clientHandler = new ClientHandler(clientSocket);
+                new Thread(clientHandler).start();
             }
-
-        } catch (Exception e) {
-            System.err.println("🔥 Fatal server startup error:");
+        } catch (IOException e) {
+            System.err.println("❌ Server socket crashed:");
             e.printStackTrace();
         }
     }

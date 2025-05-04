@@ -85,16 +85,22 @@ public class ClientHandler extends Thread {
                         handleCRDTDelete();
                         break;
                     case "crdt_sync":
-                        handleCRDTSync();
+                        try {
+                            handleCRDTSync();
+                        } catch (Exception ex) {
+                            System.err.println("❗ Error in handleCRDTSync");
+                            ex.printStackTrace();
+                        }
                         break;
 
                     default:
-                    System.out.println("⚠️ Unknown request type: " + requestType);
-                    break;
+                        System.out.println("⚠️ Unknown request type: " + requestType);
+                        break;
                 }
             }
-        }  catch (EOFException eof) {
+        } catch (EOFException eof) {
             System.out.println("🔌 Client disconnected unexpectedly: " + clientSocket.getInetAddress());
+            eof.printStackTrace();
         } catch (IOException e) {
             System.err.println("❌ IOException for client: " + clientSocket.getInetAddress());
             e.printStackTrace();
@@ -103,6 +109,7 @@ public class ClientHandler extends Thread {
             e.printStackTrace();
         } finally {
             try {
+                System.out.println("🧵 Thread " + Thread.currentThread().getName() + " finished for client " + clientSocket.getInetAddress());
                 // Remove from active editors
                 if (currentDocument != null) {
                     CopyOnWriteArrayList<ClientHandler> editors = CollabServer.activeEditors.get(currentDocument);
@@ -111,13 +118,13 @@ public class ClientHandler extends Thread {
                         System.out.println("🧹 Removed client from active editors of: " + currentDocument);
                     }
                 }
-    
+
                 // Close socket
                 if (clientSocket != null && !clientSocket.isClosed()) {
                     clientSocket.close();
                     System.out.println("🔒 Closed connection: " + clientSocket.getInetAddress());
                 }
-    
+
             } catch (IOException e) {
                 System.err.println("❌ Failed to close client socket");
                 e.printStackTrace();

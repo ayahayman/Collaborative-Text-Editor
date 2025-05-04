@@ -63,7 +63,7 @@ public class CRDTDocument {
 
     private List<Integer> generateIdBetween(List<Integer> id1, List<Integer> id2, int depth) {
         int base = (int) Math.pow(2, depth + 4); // growth factor
-
+        System.out.println("eh kalaaaaaaaaam");
         int digit1 = (id1.size() > depth) ? id1.get(depth) : 0;
         int digit2 = (id2.size() > depth) ? id2.get(depth) : base;
 
