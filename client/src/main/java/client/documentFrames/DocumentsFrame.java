@@ -1,12 +1,37 @@
 package client.documentFrames;
 
-import client.ClientConnectionManager;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.Socket;
+
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.SwingConstants;
+import javax.swing.UIManager;
+
 import client.loginFrames.GradientPanel;
-import java.awt.*;
-import java.awt.event.*;
-import java.io.*;
-import java.net.*;
-import javax.swing.*;
 
 public class DocumentsFrame extends JFrame {
     private static String SERVER_HOST;
@@ -82,7 +107,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void fetchDocuments() {
-        try (Socket socket = new Socket(SERVER_HOST, 12345);
+        try (Socket socket = new Socket(SERVER_HOST, 39388);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -188,7 +213,7 @@ public class DocumentsFrame extends JFrame {
     private void createNewDocument() {
         String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
         if (name != null && !name.trim().isEmpty()) {
-            try (Socket socket = new Socket(SERVER_HOST, 12345);
+            try (Socket socket = new Socket(SERVER_HOST, 39388);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -212,7 +237,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void deleteDocument(String docName) {
-        try (Socket socket = new Socket(SERVER_HOST, 12345);
+        try (Socket socket = new Socket(SERVER_HOST, 39388);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -236,7 +261,7 @@ public class DocumentsFrame extends JFrame {
     private void joinDocumentWithCode() {
         String code = JOptionPane.showInputDialog(this, "Enter Session Code:");
         if (code != null && !code.trim().isEmpty()) {
-            try (Socket socket = new Socket(SERVER_HOST, 12345);
+            try (Socket socket = new Socket(SERVER_HOST, 39388);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 

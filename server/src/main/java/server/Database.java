@@ -1,27 +1,37 @@
 package server;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.UUID;
 
 import org.mindrot.jbcrypt.BCrypt;
 
 public class Database {
+
     private static final String DB_URL = "jdbc:sqlite:editor.db"; // Adjust the path as needed
 
     // Method to connect to the SQLite database
     public static Connection connect() throws SQLException {
+        try {
+            Class.forName("org.sqlite.JDBC"); // Force load the SQLite driver
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
         return DriverManager.getConnection(DB_URL);
     }
 
     // Create the users table if it doesn't exist
     public static void createUsersTable() {
-        String createTableSQL = "CREATE TABLE IF NOT EXISTS users (" +
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "username TEXT NOT NULL, " +
-                "password_hash TEXT NOT NULL);";
+        String createTableSQL = "CREATE TABLE IF NOT EXISTS users ("
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                + "username TEXT NOT NULL, "
+                + "password_hash TEXT NOT NULL);";
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute(createTableSQL); // Executes the SQL query to create the table if it doesn't exist
             System.out.println("Users table created or already exists.");
@@ -78,13 +88,13 @@ public class Database {
 
     public static void createDocumentsTable() {
 
-        String createTableSQL = "CREATE TABLE IF NOT EXISTS documents (" +
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "name TEXT NOT NULL, " +
-                "content TEXT, " +
-                "creator_id INTEGER NOT NULL, " +
-                "FOREIGN KEY (creator_id) REFERENCES users(id));"; // Ensuring that the creator_id links to the users
-                                                                   // table
+        String createTableSQL = "CREATE TABLE IF NOT EXISTS documents ("
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                + "name TEXT NOT NULL, "
+                + "content TEXT, "
+                + "creator_id INTEGER NOT NULL, "
+                + "FOREIGN KEY (creator_id) REFERENCES users(id));"; // Ensuring that the creator_id links to the users
+        // table
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute(createTableSQL);
             System.out.println("Documents table created or already exists.");
@@ -97,13 +107,14 @@ public class Database {
     }
 
     public static void createSharingTable() {
-        String createTableSQL = "CREATE TABLE IF NOT EXISTS sharing_codes (" +
-                "document_id INTEGER NOT NULL, " +
-                "user_id INTEGER NOT NULL, " +
-                "code TEXT NOT NULL, " +
-                "access_type TEXT NOT NULL, " + // "view" or "edit"
-                "FOREIGN KEY (document_id) REFERENCES documents(id), " +
-                "FOREIGN KEY (user_id) REFERENCES users(id));";
+        String createTableSQL = "CREATE TABLE IF NOT EXISTS sharing_codes ("
+                + "document_id INTEGER NOT NULL, "
+                + "user_id INTEGER NOT NULL, "
+                + "code TEXT NOT NULL, "
+                + "access_type TEXT NOT NULL, "
+                + // "view" or "edit"
+                "FOREIGN KEY (document_id) REFERENCES documents(id), "
+                + "FOREIGN KEY (user_id) REFERENCES users(id));";
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute(createTableSQL);
             System.out.println("Sharing codes table created or already exists.");
@@ -231,11 +242,12 @@ public class Database {
             System.out.println("Dropped existing documents table (if it existed).");
 
             // Create the new documents table with the correct schema
-            String createTableSQL = "CREATE TABLE documents (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    "name TEXT NOT NULL, " +
-                    "content TEXT, " +
-                    "creator_id INTEGER NOT NULL, " + // Correct column name 'creator_id'
+            String createTableSQL = "CREATE TABLE documents ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "name TEXT NOT NULL, "
+                    + "content TEXT, "
+                    + "creator_id INTEGER NOT NULL, "
+                    + // Correct column name 'creator_id'
                     "FOREIGN KEY (creator_id) REFERENCES users(id));"; // Link to users table
 
             stmt.executeUpdate(createTableSQL);
@@ -247,13 +259,14 @@ public class Database {
 
     public static void resetSharingCodesTable() {
         String dropTableSQL = "DROP TABLE IF EXISTS sharing_codes";
-        String createTableSQL = "CREATE TABLE IF NOT EXISTS sharing_codes (" +
-                "document_id INTEGER NOT NULL, " +
-                "user_id INTEGER NOT NULL, " +
-                "code TEXT NOT NULL, " +
-                "access_type TEXT NOT NULL, " + // "view" or "edit"
-                "FOREIGN KEY (document_id) REFERENCES documents(id), " +
-                "FOREIGN KEY (user_id) REFERENCES users(id));";
+        String createTableSQL = "CREATE TABLE IF NOT EXISTS sharing_codes ("
+                + "document_id INTEGER NOT NULL, "
+                + "user_id INTEGER NOT NULL, "
+                + "code TEXT NOT NULL, "
+                + "access_type TEXT NOT NULL, "
+                + // "view" or "edit"
+                "FOREIGN KEY (document_id) REFERENCES documents(id), "
+                + "FOREIGN KEY (user_id) REFERENCES users(id));";
 
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             // Drop the existing table if it exists
@@ -301,8 +314,7 @@ public class Database {
 
     public static boolean updateDocumentContent(String docName, String newContent) {
         String sql = "UPDATE documents SET content = ? WHERE name = ?";
-        try (Connection conn = connect();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (Connection conn = connect(); PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, newContent);
             stmt.setString(2, docName);
@@ -315,11 +327,10 @@ public class Database {
     }
 
     public static String getCodeByDocNameAndAccess(String docName, String accessType) {
-        String query = "SELECT sc.code FROM sharing_codes sc " +
-                "JOIN documents d ON sc.document_id = d.id " +
-                "WHERE d.name = ? AND sc.access_type = ? LIMIT 1";
-        try (Connection conn = connect();
-                PreparedStatement pstmt = conn.prepareStatement(query)) {
+        String query = "SELECT sc.code FROM sharing_codes sc "
+                + "JOIN documents d ON sc.document_id = d.id "
+                + "WHERE d.name = ? AND sc.access_type = ? LIMIT 1";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
             pstmt.setString(1, docName);
             pstmt.setString(2, accessType);
             ResultSet rs = pstmt.executeQuery();
@@ -334,8 +345,8 @@ public class Database {
 
     public static void assignSharingCodeToUser(int userId, String code) {
         String checkSQL = "SELECT * FROM sharing_codes WHERE user_id = ? AND code = ?";
-        String updateSQL = "INSERT INTO sharing_codes (document_id, user_id, code, access_type) " +
-                "SELECT document_id, ?, code, access_type FROM sharing_codes WHERE code = ? LIMIT 1";
+        String updateSQL = "INSERT INTO sharing_codes (document_id, user_id, code, access_type) "
+                + "SELECT document_id, ?, code, access_type FROM sharing_codes WHERE code = ? LIMIT 1";
 
         try (Connection conn = connect()) {
             // Check if already exists
@@ -343,9 +354,10 @@ public class Database {
                 checkStmt.setInt(1, userId);
                 checkStmt.setString(2, code);
                 ResultSet rs = checkStmt.executeQuery();
-                if (rs.next())
+                if (rs.next()) {
                     return; // Already assigned
-            }
+
+                            }}
 
             // Assign new sharing code entry to this user
             try (PreparedStatement insertStmt = conn.prepareStatement(updateSQL)) {
@@ -410,10 +422,10 @@ public class Database {
     }
 
     public static String getUserRoleForDocument(int userId, int documentId) {
-        String query = "SELECT d.creator_id, sc.access_type " +
-                "FROM documents d " +
-                "LEFT JOIN sharing_codes sc ON d.id = sc.document_id AND sc.user_id = ? " +
-                "WHERE d.id = ?";
+        String query = "SELECT d.creator_id, sc.access_type "
+                + "FROM documents d "
+                + "LEFT JOIN sharing_codes sc ON d.id = sc.document_id AND sc.user_id = ? "
+                + "WHERE d.id = ?";
 
         try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
             pstmt.setInt(1, userId);
@@ -425,10 +437,12 @@ public class Database {
                 if (creatorId == userId) {
                     return "owner";
                 }
-                if ("edit".equals(accessType))
+                if ("edit".equals(accessType)) {
                     return "editor";
-                if ("view".equals(accessType))
+                }
+                if ("view".equals(accessType)) {
                     return "viewer";
+                }
             }
         } catch (SQLException e) {
             e.printStackTrace();

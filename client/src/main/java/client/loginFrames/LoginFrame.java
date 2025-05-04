@@ -120,7 +120,7 @@ public class LoginFrame extends JFrame {
 
         try {
             // Open shared connection
-            ClientConnectionManager.connect(SERVER_HOST, 12345);
+            ClientConnectionManager.connect(SERVER_HOST, 39388);
             DataOutputStream out = ClientConnectionManager.getOut();
             DataInputStream in = ClientConnectionManager.getIn();
 
