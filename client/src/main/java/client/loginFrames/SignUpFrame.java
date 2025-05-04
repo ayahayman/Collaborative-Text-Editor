@@ -8,11 +8,13 @@ import java.io.*;
 import java.net.*;
 
 public class SignUpFrame extends JFrame {
+    private static String SERVER_HOST;
     private JTextField usernameField;
     private JPasswordField passwordField;
     private JButton signUpButton, backButton;
 
-    public SignUpFrame() {
+    public SignUpFrame(String serverHost) {
+        SERVER_HOST = serverHost;
         setTitle("Sign Up");
         setSize(500, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -57,7 +59,7 @@ public class SignUpFrame extends JFrame {
 
         signUpButton.addActionListener(e -> signUpUser());
         backButton.addActionListener(e -> {
-            new LoginFrame().setVisible(true);
+            new LoginFrame(SERVER_HOST).setVisible(true);
             this.dispose();
         });
     }
@@ -114,7 +116,7 @@ public class SignUpFrame extends JFrame {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
-        try (Socket socket = new Socket("192.168.100.249", 12345);
+        try (Socket socket = new Socket(SERVER_HOST, 12345);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -125,7 +127,7 @@ public class SignUpFrame extends JFrame {
             String response = in.readUTF();
             if ("Signup successful".equals(response)) {
                 JOptionPane.showMessageDialog(this, "Sign-up successful!");
-                new LoginFrame().setVisible(true);
+                new LoginFrame(SERVER_HOST).setVisible(true);
                 this.dispose();
             } else {
                 JOptionPane.showMessageDialog(this, "Username already exists", "Error", JOptionPane.ERROR_MESSAGE);

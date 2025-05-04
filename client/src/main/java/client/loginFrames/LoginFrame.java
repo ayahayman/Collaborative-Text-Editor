@@ -12,11 +12,13 @@ import java.io.*;
 import java.net.*;
 
 public class LoginFrame extends JFrame {
+    private static String SERVER_HOST;
     private JTextField usernameField;
     private JPasswordField passwordField;
     private JButton loginButton, signUpButton;
 
-    public LoginFrame() {
+    public LoginFrame(String serverHost) {
+        SERVER_HOST = serverHost;
         setTitle("Login");
         setSize(500, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -118,7 +120,7 @@ public class LoginFrame extends JFrame {
 
         try {
             // Open shared connection
-            ClientConnectionManager.connect("192.168.100.249", 12345);
+            ClientConnectionManager.connect(SERVER_HOST, 12345);
             DataOutputStream out = ClientConnectionManager.getOut();
             DataInputStream in = ClientConnectionManager.getIn();
 
@@ -145,7 +147,7 @@ public class LoginFrame extends JFrame {
     }
 
     private void openSignUpFrame() {
-        new SignUpFrame().setVisible(true);
+        new SignUpFrame(SERVER_HOST).setVisible(true);
         this.dispose();
     }
 }
