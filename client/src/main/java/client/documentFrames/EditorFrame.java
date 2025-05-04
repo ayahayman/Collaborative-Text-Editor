@@ -6,6 +6,7 @@ import javafx.stage.WindowEvent;
 import java.awt.event.WindowAdapter;
 
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.io.*;
 import java.net.*;
 import javax.swing.*;
@@ -30,6 +31,7 @@ public class EditorFrame extends JFrame {
 
     private JTextArea editorArea;
     private JLabel codeLabel;
+    private JPanel topPanel;
     private JLabel userListLabel;
     private String docName;
     private int userId;
@@ -247,7 +249,7 @@ public class EditorFrame extends JFrame {
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
-        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel = new JPanel(new BorderLayout());
         codeLabel = new JLabel("Document: " + docName);
         codeLabel.setFont(new Font("Arial", Font.ITALIC, 14));
         codeLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -363,13 +365,29 @@ public class EditorFrame extends JFrame {
             String editorCode = in.readUTF();
             String viewerCode = in.readUTF();
 
+            JPanel codePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            codePanel.setOpaque(false);
+
+            codePanel.add(new JLabel("Document: " + docName));
+
             if (role.equals("owner") || role.equals("editor")) {
-                codeLabel.setText("Document: " + docName
-                        + "  |  Editor Code: " + editorCode
-                        + "  |  Viewer Code: " + viewerCode);
-            } else {
-                codeLabel.setText("Document: " + docName);
+                JLabel editorCodeLabel = new JLabel(" | Editor Code: " + editorCode + " ");
+                JButton copyEditorBtn = new JButton("Copy");
+                copyEditorBtn.setFont(new Font("Arial", Font.PLAIN, 10));
+                copyEditorBtn.addActionListener(e -> copyToClipboard(editorCode));
+
+                JLabel viewerCodeLabel = new JLabel(" | Viewer Code: " + viewerCode + " ");
+                JButton copyViewerBtn = new JButton("Copy");
+                copyViewerBtn.setFont(new Font("Arial", Font.PLAIN, 10));
+                copyViewerBtn.addActionListener(e -> copyToClipboard(viewerCode));
+
+                codePanel.add(editorCodeLabel);
+                codePanel.add(copyEditorBtn);
+                codePanel.add(viewerCodeLabel);
+                codePanel.add(copyViewerBtn);
             }
+
+            topPanel.add(codePanel, BorderLayout.SOUTH); // replace previous codeLabel line
 
         } catch (IOException e) {
             codeLabel.setText("Document: " + docName + "  |  Error fetching codes.");
@@ -810,8 +828,8 @@ public class EditorFrame extends JFrame {
                 List<String> userIds = new ArrayList<>();
 
                 for (int i = 0; i < count; i++) {
-                    int uid = in.readInt();
-                    userIds.add("User " + uid + (uid == userId ? " (You)" : ""));
+                    String username = in.readUTF();
+                    userIds.add(username);
                 }
 
                 SwingUtilities.invokeLater(() -> {
@@ -835,6 +853,13 @@ public class EditorFrame extends JFrame {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private void copyToClipboard(String text) {
+        Toolkit.getDefaultToolkit()
+                .getSystemClipboard()
+                .setContents(new StringSelection(text), null);
+        JOptionPane.showMessageDialog(this, "Copied to clipboard: " + text);
     }
 
 }

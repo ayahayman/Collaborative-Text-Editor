@@ -15,6 +15,18 @@ public class DocumentsFrame extends JFrame {
     private JButton joinDocumentButton;
     private int userId;
 
+    private static class DocumentEntry {
+        String docName;
+        String code;
+        String role;
+
+        DocumentEntry(String docName, String code, String role) {
+            this.docName = docName;
+            this.code = code;
+            this.role = role;
+        }
+    }
+
     public DocumentsFrame(int userId, String serverHost) {
         this.userId = userId;
         SERVER_HOST = serverHost;
@@ -83,7 +95,10 @@ public class DocumentsFrame extends JFrame {
             for (int i = 0; i < count; i++) {
                 String docName = in.readUTF();
                 String code = in.readUTF();
-                documentGrid.add(createDocumentCard(docName, code));
+                String role = in.readUTF();
+                DocumentEntry entry = new DocumentEntry(docName, code, role);
+                documentGrid.add(createDocumentCard(entry));
+
             }
 
             documentGrid.revalidate();
@@ -94,7 +109,7 @@ public class DocumentsFrame extends JFrame {
         }
     }
 
-    private JPanel createDocumentCard(String docName, String code) {
+    private JPanel createDocumentCard(DocumentEntry entry) {
         JPanel card = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -125,7 +140,7 @@ public class DocumentsFrame extends JFrame {
         iconLabel.setPreferredSize(new Dimension(100, 100));
         iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel nameLabel = new JLabel(docName);
+        JLabel nameLabel = new JLabel(entry.docName);
         nameLabel.setFont(new Font("Arial", Font.BOLD, 14));
         nameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         nameLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -141,12 +156,12 @@ public class DocumentsFrame extends JFrame {
         deleteButton.addActionListener(e -> {
             int confirm = JOptionPane.showConfirmDialog(
                     DocumentsFrame.this,
-                    "Are you sure you want to delete '" + docName + "'?",
+                    "Are you sure you want to delete '" + entry.docName + "'?",
                     "Confirm Delete",
                     JOptionPane.YES_NO_OPTION);
 
             if (confirm == JOptionPane.YES_OPTION) {
-                deleteDocument(docName);
+                deleteDocument(entry.docName);
             }
         });
 
@@ -162,7 +177,7 @@ public class DocumentsFrame extends JFrame {
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     // Double-click from owner's document list = owner role
-                    new EditorFrame(docName, userId, "owner", SERVER_HOST).setVisible(true);
+                    new EditorFrame(entry.docName, userId, entry.role, SERVER_HOST).setVisible(true);
                 }
             }
         });

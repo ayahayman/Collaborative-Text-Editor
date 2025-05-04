@@ -372,13 +372,13 @@ public class Database {
         }
         return false;
     }
-    
+
     public static boolean deleteDocument(String docName) {
         // First get the document ID
         String getDocIdQuery = "SELECT id FROM documents WHERE name = ?";
         try (Connection conn = connect()) {
             int docId = -1;
-            
+
             // Get document ID
             try (PreparedStatement pstmt = conn.prepareStatement(getDocIdQuery)) {
                 pstmt.setString(1, docName);
@@ -389,14 +389,14 @@ public class Database {
                     return false; // Document not found
                 }
             }
-            
+
             // Delete sharing codes first (due to foreign key constraint)
             String deleteSharingQuery = "DELETE FROM sharing_codes WHERE document_id = ?";
             try (PreparedStatement pstmt = conn.prepareStatement(deleteSharingQuery)) {
                 pstmt.setInt(1, docId);
                 pstmt.executeUpdate();
             }
-            
+
             // Then delete the document
             String deleteDocQuery = "DELETE FROM documents WHERE id = ?";
             try (PreparedStatement pstmt = conn.prepareStatement(deleteDocQuery)) {
@@ -408,4 +408,46 @@ public class Database {
             return false;
         }
     }
+
+    public static String getUserRoleForDocument(int userId, int documentId) {
+        String query = "SELECT d.creator_id, sc.access_type " +
+                "FROM documents d " +
+                "LEFT JOIN sharing_codes sc ON d.id = sc.document_id AND sc.user_id = ? " +
+                "WHERE d.id = ?";
+
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
+            pstmt.setInt(1, userId);
+            pstmt.setInt(2, documentId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                int creatorId = rs.getInt("creator_id");
+                String accessType = rs.getString("access_type");
+                if (creatorId == userId) {
+                    return "owner";
+                }
+                if ("edit".equals(accessType))
+                    return "editor";
+                if ("view".equals(accessType))
+                    return "viewer";
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return "viewer"; // Default fallback
+    }
+
+    public static String getUsernameById(int userId) {
+        String query = "SELECT username FROM users WHERE id = ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(query)) {
+            pstmt.setInt(1, userId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("username");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
 }

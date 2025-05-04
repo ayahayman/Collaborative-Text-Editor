@@ -37,7 +37,13 @@ public class ClientHandler extends Thread {
     public void run() {
         try {
             while (true) {
-                String requestType = in.readUTF();
+                String requestType = null;
+                try {
+                    requestType = in.readUTF();
+                } catch (EOFException eof) {
+                    // Client closed the connection; exit the loop gracefully
+                    break;
+                }
                 System.out.println("Received request: " + requestType);
                 switch (requestType) {
                     case "login":
@@ -168,25 +174,21 @@ public class ClientHandler extends Thread {
     }
 
     private void handleDocumentRequest() throws IOException {
-        int userId = in.readInt(); // Read the user ID
-        List<Document> documents = Database.getUserDocuments(userId); // Get documents for the user
+        int userId = in.readInt();
+        List<Document> documents = Database.getUserDocuments(userId);
 
-        out.writeInt(documents.size()); // Send the number of documents to the client
+        out.writeInt(documents.size());
 
         for (Document doc : documents) {
-            // Get the sharing code for the current document and user
             String sharingCode = Database.getSharingCodeByDocumentAndUser(userId, doc.getId());
-
-            System.out.println("Document: " + doc.getName() + ", Sharing Code: " + sharingCode);
-
-            // If sharingCode is null, use "N/A" as the default
-            if (sharingCode == null) {
+            if (sharingCode == null)
                 sharingCode = "N/A";
-            }
 
-            // Send the document name and the sharing code to the client
+            String role = Database.getUserRoleForDocument(userId, doc.getId());
+
             out.writeUTF(doc.getName());
             out.writeUTF(sharingCode);
+            out.writeUTF(role); // Send role even if Document doesn't contain it
         }
     }
 
@@ -436,7 +438,8 @@ public class ClientHandler extends Thread {
 
         out.writeInt(handlers.size());
         for (ClientHandler handler : handlers) {
-            out.writeInt(handler.userId);
+            String username = Database.getUsernameById(handler.userId);
+            out.writeUTF(username);
         }
     }
 
