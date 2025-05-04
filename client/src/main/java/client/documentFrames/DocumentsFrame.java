@@ -35,6 +35,7 @@ import client.loginFrames.GradientPanel;
 
 public class DocumentsFrame extends JFrame {
     private static String SERVER_HOST;
+    private static int PORT;
     private JPanel documentGrid;
     private JButton newDocumentButton;
     private JButton joinDocumentButton;
@@ -52,8 +53,9 @@ public class DocumentsFrame extends JFrame {
         }
     }
 
-    public DocumentsFrame(int userId, String serverHost) {
+    public DocumentsFrame(int userId, String serverHost, int port) {
         this.userId = userId;
+        PORT=port;
         SERVER_HOST = serverHost;
         setTitle("My Documents");
         setSize(900, 600);
@@ -107,7 +109,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void fetchDocuments() {
-        try (Socket socket = new Socket(SERVER_HOST, 39321);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -202,7 +204,7 @@ public class DocumentsFrame extends JFrame {
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     // Double-click from owner's document list = owner role
-                    new EditorFrame(entry.docName, userId, entry.role, SERVER_HOST).setVisible(true);
+                    new EditorFrame(entry.docName, userId, entry.role, SERVER_HOST,PORT).setVisible(true);
                 }
             }
         });
@@ -213,7 +215,7 @@ public class DocumentsFrame extends JFrame {
     private void createNewDocument() {
         String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
         if (name != null && !name.trim().isEmpty()) {
-            try (Socket socket = new Socket(SERVER_HOST, 39321);
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -237,7 +239,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void deleteDocument(String docName) {
-        try (Socket socket = new Socket(SERVER_HOST, 39321);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -261,7 +263,7 @@ public class DocumentsFrame extends JFrame {
     private void joinDocumentWithCode() {
         String code = JOptionPane.showInputDialog(this, "Enter Session Code:");
         if (code != null && !code.trim().isEmpty()) {
-            try (Socket socket = new Socket(SERVER_HOST, 39321);
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -274,7 +276,7 @@ public class DocumentsFrame extends JFrame {
                     String docName = in.readUTF();
                     String docContent = in.readUTF();
                     String role = response.contains("view") ? "viewer" : "editor";
-                    new EditorFrame(docName, userId, role, SERVER_HOST).setVisible(true);
+                    new EditorFrame(docName, userId, role, SERVER_HOST,PORT).setVisible(true);
 
                     fetchDocuments();
                 } else {

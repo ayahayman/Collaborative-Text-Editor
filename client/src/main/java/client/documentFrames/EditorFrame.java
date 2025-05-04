@@ -76,6 +76,8 @@ public class EditorFrame extends JFrame {
     private DefaultListModel<String> activeUserListModel;
     private JList<String> activeUserList;
     private static String SERVER_HOST;
+    private static int PORT;
+
 
     private static class CursorData {
         List<Integer> crdtId;
@@ -89,7 +91,7 @@ public class EditorFrame extends JFrame {
 
     private void connectToServer() {
         try {
-            socket = new Socket(SERVER_HOST, 39321);
+            socket = new Socket(SERVER_HOST, PORT);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
 
@@ -218,7 +220,7 @@ public class EditorFrame extends JFrame {
                             // Update own cursor to follow inserted char
                             List<CRDTChar> updated = crdtDoc.getCharList();
                             int newPos = updated.indexOf(crdtChar);
-                            List<Integer> nextId = crdtChar.id;
+                            List<Integer> nextId ;
                             if (newPos + 1 < updated.size()) {
                                 nextId = updated.get(newPos + 1).id;
                             } else {
@@ -228,6 +230,9 @@ public class EditorFrame extends JFrame {
 
                             remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
                             sendCursorUpdate(nextId);
+                            SwingUtilities.invokeLater(() -> {
+                                editorArea.setCaretPosition(newPos + 1); // Adjust as needed
+                            });
 
                         }
 
@@ -268,8 +273,9 @@ public class EditorFrame extends JFrame {
         });
     }
 
-    public EditorFrame(String docName, int userId, String role, String serverHost) {
-        this.SERVER_HOST = serverHost;
+    public EditorFrame(String docName, int userId, String role, String serverHost, int port) {
+        SERVER_HOST = serverHost;
+        PORT=port;
         this.docName = docName;
         this.userId = userId;
         this.role = role;
@@ -369,7 +375,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket(SERVER_HOST, 39321);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -386,7 +392,7 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket(SERVER_HOST, 39321);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -446,7 +452,7 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket(SERVER_HOST, 39321);
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -477,7 +483,7 @@ public class EditorFrame extends JFrame {
                 JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket(SERVER_HOST, 39321);
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -744,23 +750,34 @@ public class EditorFrame extends JFrame {
 
     private void updateTextArea(boolean restoreCaret) {
         isRemoteEdit = true;
-        int caret = editorArea.getCaretPosition();
+        // Store the current CRDT ID before updating
+        CursorData localCursor = remoteCursors.get(userId);
+        List<Integer> currentCrdtId = (localCursor != null) ? localCursor.crdtId : List.of(-1);
 
         String newText = crdtDoc.toPlainText();
         if (!editorArea.getText().equals(newText)) {
             editorArea.setText(newText);
         }
 
-        int newLength = editorArea.getText().length();
-        caret = Math.min(caret, newLength);
-
-        if (restoreCaret) {
-            editorArea.setCaretPosition(caret);
+        // Find the new caret position based on CRDT ID
+        int newCaretPos = 0;
+        List<CRDTChar> chars = crdtDoc.getCharList();
+        if (currentCrdtId.size() == 1 && currentCrdtId.get(0) == -1) {
+            newCaretPos = editorArea.getText().length(); // End of document
+        } else {
+            for (int i = 0; i < chars.size(); i++) {
+                if (chars.get(i).id.equals(currentCrdtId)) {
+                    newCaretPos = i;
+                    break;
+                }
+            }
         }
 
-        // Delay repaint of remote cursors so caret restores first
-        SwingUtilities.invokeLater(this::repaintRemoteCursors);
+        if (restoreCaret) {
+            editorArea.setCaretPosition(newCaretPos);
+        }
 
+        SwingUtilities.invokeLater(this::repaintRemoteCursors);
         isRemoteEdit = false;
     }
 
@@ -818,6 +835,7 @@ public class EditorFrame extends JFrame {
     }
 
     private void updateOwnCursorCRDTIdFromCaret() {
+        if (isRemoteEdit) return; // Avoid updating during remote edits
         int caret = editorArea.getCaretPosition();
         List<CRDTChar> chars = crdtDoc.getCharList();
 
@@ -848,7 +866,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchActiveUsers() {
         new Thread(() -> {
-            try (Socket socket = new Socket(SERVER_HOST, 39321);
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
