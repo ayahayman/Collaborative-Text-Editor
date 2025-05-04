@@ -107,7 +107,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void fetchDocuments() {
-        try (Socket socket = new Socket(SERVER_HOST, 39388);
+        try (Socket socket = new Socket(SERVER_HOST, 42512);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -213,7 +213,7 @@ public class DocumentsFrame extends JFrame {
     private void createNewDocument() {
         String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
         if (name != null && !name.trim().isEmpty()) {
-            try (Socket socket = new Socket(SERVER_HOST, 39388);
+            try (Socket socket = new Socket(SERVER_HOST, 42512);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -237,7 +237,7 @@ public class DocumentsFrame extends JFrame {
     }
 
     private void deleteDocument(String docName) {
-        try (Socket socket = new Socket(SERVER_HOST, 39388);
+        try (Socket socket = new Socket(SERVER_HOST, 42512);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -261,7 +261,7 @@ public class DocumentsFrame extends JFrame {
     private void joinDocumentWithCode() {
         String code = JOptionPane.showInputDialog(this, "Enter Session Code:");
         if (code != null && !code.trim().isEmpty()) {
-            try (Socket socket = new Socket(SERVER_HOST, 39388);
+            try (Socket socket = new Socket(SERVER_HOST, 42512);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 

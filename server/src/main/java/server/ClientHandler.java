@@ -1,17 +1,21 @@
 package server;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.net.Socket;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 import org.mindrot.jbcrypt.BCrypt;
 
 import crdt.CRDTChar;
-
-import java.io.*;
-import java.net.*;
-import java.sql.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ClientHandler extends Thread {
 
@@ -36,15 +40,10 @@ public class ClientHandler extends Thread {
     @Override
     public void run() {
         try {
+            System.out.println("👤 ClientHandler started for: " + clientSocket.getInetAddress());
             while (true) {
-                String requestType = null;
-                try {
-                    requestType = in.readUTF();
-                } catch (EOFException eof) {
-                    // Client closed the connection; exit the loop gracefully
-                    break;
-                }
-                System.out.println("Received request: " + requestType);
+                String requestType = in.readUTF();
+                System.out.println("📩 Received request: " + requestType);
                 switch (requestType) {
                     case "login":
                         handleLogin();
@@ -88,30 +87,39 @@ public class ClientHandler extends Thread {
                     case "crdt_sync":
                         handleCRDTSync();
                         break;
-                    case "cursor_update":
-                        handleCursorUpdate();
-                        break;
-                    case "getActiveUsers":
-                        handleGetActiveUsers();
-                        break;
-                    case "disconnectFromDocument":
-                        handleDisconnectFromDocument();
-                        break;
 
                     default:
-                        out.writeUTF("Invalid request type");
-                        break;
+                    System.out.println("⚠️ Unknown request type: " + requestType);
+                    break;
                 }
             }
+        }  catch (EOFException eof) {
+            System.out.println("🔌 Client disconnected unexpectedly: " + clientSocket.getInetAddress());
         } catch (IOException e) {
+            System.err.println("❌ IOException for client: " + clientSocket.getInetAddress());
+            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("🔥 Unexpected exception in ClientHandler: " + e.getMessage());
             e.printStackTrace();
         } finally {
-            if (currentDocument != null) {
-                CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>()).remove(this);
-            }
             try {
-                clientSocket.close();
+                // Remove from active editors
+                if (currentDocument != null) {
+                    CopyOnWriteArrayList<ClientHandler> editors = CollabServer.activeEditors.get(currentDocument);
+                    if (editors != null) {
+                        editors.remove(this);
+                        System.out.println("🧹 Removed client from active editors of: " + currentDocument);
+                    }
+                }
+    
+                // Close socket
+                if (clientSocket != null && !clientSocket.isClosed()) {
+                    clientSocket.close();
+                    System.out.println("🔒 Closed connection: " + clientSocket.getInetAddress());
+                }
+    
             } catch (IOException e) {
+                System.err.println("❌ Failed to close client socket");
                 e.printStackTrace();
             }
         }
@@ -174,21 +182,25 @@ public class ClientHandler extends Thread {
     }
 
     private void handleDocumentRequest() throws IOException {
-        int userId = in.readInt();
-        List<Document> documents = Database.getUserDocuments(userId);
+        int userId = in.readInt(); // Read the user ID
+        List<Document> documents = Database.getUserDocuments(userId); // Get documents for the user
 
-        out.writeInt(documents.size());
+        out.writeInt(documents.size()); // Send the number of documents to the client
 
         for (Document doc : documents) {
+            // Get the sharing code for the current document and user
             String sharingCode = Database.getSharingCodeByDocumentAndUser(userId, doc.getId());
-            if (sharingCode == null)
+
+            System.out.println("Document: " + doc.getName() + ", Sharing Code: " + sharingCode);
+
+            // If sharingCode is null, use "N/A" as the default
+            if (sharingCode == null) {
                 sharingCode = "N/A";
+            }
 
-            String role = Database.getUserRoleForDocument(userId, doc.getId());
-
+            // Send the document name and the sharing code to the client
             out.writeUTF(doc.getName());
             out.writeUTF(sharingCode);
-            out.writeUTF(role); // Send role even if Document doesn't contain it
         }
     }
 
@@ -289,20 +301,12 @@ public class ClientHandler extends Thread {
     private void handleSyncDocument() throws IOException {
         this.currentDocument = in.readUTF();
         this.userId = in.readInt();
-        this.role = in.readUTF();
+        this.role = in.readUTF();             // role
         this.realTimeMode = true;
 
-        // Insert this block right here:
+        // Add this client to the global document editor list
         CollabServer.activeEditors.putIfAbsent(currentDocument, new CopyOnWriteArrayList<>());
         CollabServer.activeEditors.get(currentDocument).add(this);
-
-        CollabServer.cursorColors.putIfAbsent(currentDocument, new HashMap<>());
-
-        Map<Integer, String> docColors = CollabServer.cursorColors.get(currentDocument);
-        if (!docColors.containsKey(userId)) {
-            String[] palette = { "#FF0000", "#0000FF", "#008000", "#FFA500", "#800080", "#00CED1" };
-            docColors.put(userId, palette[docColors.size() % palette.length]);
-        }
 
         System.out.println("User " + userId + " started real-time sync on document: " + currentDocument);
     }
@@ -313,8 +317,7 @@ public class ClientHandler extends Thread {
         int deletedLength = in.readInt();
 
         // Broadcast this edit to all other clients editing this document
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
-                new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("edit");
@@ -347,8 +350,7 @@ public class ClientHandler extends Thread {
         }
 
         // Broadcast to other clients (same as before)
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
-                new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("crdt_insert");
@@ -374,8 +376,7 @@ public class ClientHandler extends Thread {
         String site = in.readUTF();
         System.out.println("Delete from " + site + " at ID " + id);
         // Broadcast to other clients
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
-                new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("crdt_delete");
@@ -403,66 +404,4 @@ public class ClientHandler extends Thread {
             out.writeUTF(c.siteId);
         }
     }
-
-    private void handleCursorUpdate() throws IOException {
-        int senderId = in.readInt();
-        String doc = in.readUTF();
-        int idSize = in.readInt();
-        List<Integer> crdtId = new ArrayList<>();
-        for (int i = 0; i < idSize; i++) {
-            crdtId.add(in.readInt());
-        }
-
-        String color = CollabServer.cursorColors.getOrDefault(doc, new HashMap<>()).getOrDefault(senderId, "#000000");
-
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(doc, new CopyOnWriteArrayList<>())) {
-            if (client.realTimeMode) {
-                try {
-                    client.out.writeUTF("cursor_update");
-                    client.out.writeInt(senderId);
-                    client.out.writeInt(idSize);
-                    for (int i : crdtId) {
-                        client.out.writeInt(i);
-                    }
-                    client.out.writeUTF(color);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-    private void handleGetActiveUsers() throws IOException {
-        String docName = in.readUTF();
-        List<ClientHandler> handlers = CollabServer.activeEditors.getOrDefault(docName, new CopyOnWriteArrayList<>());
-
-        out.writeInt(handlers.size());
-        for (ClientHandler handler : handlers) {
-            String username = Database.getUsernameById(handler.userId);
-            out.writeUTF(username);
-        }
-    }
-
-    private void handleDisconnectFromDocument() throws IOException {
-        String doc = in.readUTF();
-        int uid = in.readInt();
-
-        List<ClientHandler> handlers = CollabServer.activeEditors.getOrDefault(doc, new CopyOnWriteArrayList<>());
-        handlers.removeIf(h -> h.userId == uid);
-
-        // Notify other users to remove the cursor
-        for (ClientHandler client : handlers) {
-            if (client.realTimeMode) {
-                try {
-                    client.out.writeUTF("remove_cursor");
-                    client.out.writeInt(uid); // Tell them which user to remove
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        System.out.println("User " + uid + " left document: " + doc);
-    }
-
 }

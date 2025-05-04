@@ -89,7 +89,7 @@ public class EditorFrame extends JFrame {
 
     private void connectToServer() {
         try {
-            socket = new Socket(SERVER_HOST, 39388);
+            socket = new Socket(SERVER_HOST, 42512);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
 
@@ -369,7 +369,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket(SERVER_HOST, 39388);
+        try (Socket socket = new Socket(SERVER_HOST, 42512);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -386,7 +386,7 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket(SERVER_HOST, 39388);
+        try (Socket socket = new Socket(SERVER_HOST, 42512);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -446,7 +446,7 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket(SERVER_HOST, 39388);
+        try (Socket socket = new Socket(SERVER_HOST, 42512);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -477,7 +477,7 @@ public class EditorFrame extends JFrame {
                 JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket(SERVER_HOST, 39388);
+            try (Socket socket = new Socket(SERVER_HOST, 42512);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -848,7 +848,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchActiveUsers() {
         new Thread(() -> {
-            try (Socket socket = new Socket(SERVER_HOST, 39388);
+            try (Socket socket = new Socket(SERVER_HOST, 42512);
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 

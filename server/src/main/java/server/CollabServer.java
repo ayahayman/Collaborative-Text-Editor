@@ -17,24 +17,38 @@ public class CollabServer {
     public static final Map<String, Map<Integer, String>> cursorColors = new HashMap<>();
 
     public static void main(String[] args) {
-        // Initialize the database and create the users table if it doesn't exist
-        Database.createUsersTable();
-        Database.createDocumentsTable();
-        Database.createSharingTable();
+        try {
+            System.out.println("🟢 Initializing database tables...");
+            Database.createUsersTable();
+            Database.createDocumentsTable();
+            Database.createSharingTable();
 
-        // Start the server to listen for client connections
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            System.out.println("Server started. Waiting for clients to connect...");
+            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+                System.out.println("✅ Server started on port " + PORT + ". Waiting for clients...");
 
-            while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("New client connected: " + clientSocket.getInetAddress());
+                while (true) {
+                    try {
+                        Socket clientSocket = serverSocket.accept();
+                        System.out.println("🟡 New client connected: " + clientSocket.getInetAddress());
 
-                ClientHandler clientHandler = new ClientHandler(clientSocket);
-                new Thread(clientHandler).start();
+                        ClientHandler clientHandler = new ClientHandler(clientSocket);
+                        new Thread(clientHandler).start();
+                    } catch (IOException e) {
+                        System.err.println("❌ Error while accepting client connection: " + e.getMessage());
+                        e.printStackTrace();
+                    } catch (Exception e) {
+                        System.err.println("❗ Unexpected error during client connection handling:");
+                        e.printStackTrace();
+                    }
+                }
+
+            } catch (IOException e) {
+                System.err.println("🚨 Failed to start server on port " + PORT + ": " + e.getMessage());
+                e.printStackTrace();
             }
 
-        } catch (IOException e) {
+        } catch (Exception e) {
+            System.err.println("🔥 Fatal server startup error:");
             e.printStackTrace();
         }
     }

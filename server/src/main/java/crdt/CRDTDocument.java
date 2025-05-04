@@ -1,6 +1,9 @@
-
 package crdt;
-import java.util.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class CRDTDocument {
 
@@ -18,9 +21,9 @@ public class CRDTDocument {
         CRDTChar left = (index - 1 >= 0 && index - 1 < charList.size()) ? charList.get(index - 1) : null;
 
         List<Integer> newId = generateIdBetween(
-            left != null ? left.id : new ArrayList<>(),
-            right != null ? right.id : new ArrayList<>(),
-            0
+                left != null ? left.id : new ArrayList<>(),
+                right != null ? right.id : new ArrayList<>(),
+                0
         );
 
         CRDTChar newChar = new CRDTChar(value, newId, siteId);
@@ -58,23 +61,36 @@ public class CRDTDocument {
         charList.add(i, newChar);
     }
 
-    // Generate a new ID between two existing ones
-    private List<Integer> generateIdBetween(List<Integer> left, List<Integer> right, int depth) {
-        int base = 10; // The base granularity
+    private List<Integer> generateIdBetween(List<Integer> id1, List<Integer> id2, int depth) {
+        int base = (int) Math.pow(2, depth + 4); // growth factor
 
-        int leftId = (left.size() > depth) ? left.get(depth) : 0;
-        int rightId = (right.size() > depth) ? right.get(depth) : base;
+        int digit1 = (id1.size() > depth) ? id1.get(depth) : 0;
+        int digit2 = (id2.size() > depth) ? id2.get(depth) : base;
 
-        if (rightId - leftId > 1) {
-            int newId = leftId + 1 + random.nextInt(rightId - leftId - 1);
-            List<Integer> newPath = new ArrayList<>(left.subList(0, depth));
-            newPath.add(newId);
-            return newPath;
-        } else {
-            List<Integer> prefix = new ArrayList<>(left.subList(0, depth));
-            prefix.add(leftId);
-            return generateIdBetween(left, right, depth + 1);
+        List<Integer> newId = new ArrayList<>();
+
+        // If digits are too close to generate a new unique digit
+        if (digit2 - digit1 < 2) {
+            if (depth > 100) {
+                System.err.println("⚠️ generateIdBetween() recursion too deep. Returning fallback ID.");
+                // Fallback: return a unique ID including siteId and a random number
+                newId.add(digit1);  // Inherit the last usable digit
+                newId.add(siteId.hashCode());  // Make sure ID is unique per client
+                newId.add(ThreadLocalRandom.current().nextInt(0, 100000)); // In case of same siteId, add randomness
+                return newId;
+            }
+
+            // Prepare tails early for recursion
+            List<Integer> tailId1 = (id1.size() > depth + 1) ? id1.subList(depth + 1, id1.size()) : new ArrayList<>();
+            List<Integer> tailId2 = (id2.size() > depth + 1) ? id2.subList(depth + 1, id2.size()) : new ArrayList<>();
+
+            newId.add(digit1);
+            return generateIdBetween(tailId1, tailId2, depth + 1);
         }
+
+        int newDigit = digit1 + 1 + (int) (Math.random() * (digit2 - digit1 - 1));
+        newId.add(newDigit);
+        return newId;
     }
 
     public List<CRDTChar> getCharList() {
