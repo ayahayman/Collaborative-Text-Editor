@@ -1,129 +1,83 @@
-package crdt;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+package crdt;
+import java.util.*;
 
 public class CRDTDocument {
 
-    private final CRDTChar root; // Virtual root node
+    private final List<CRDTChar> charList = new ArrayList<>();
     private final String siteId;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Random random = new Random();
 
     public CRDTDocument(String siteId) {
         this.siteId = siteId;
-        this.root = new CRDTChar("^", new ArrayList<>(), "root");
     }
 
-    // Insert a new character after the node with the given ID
-    public CRDTChar localInsert(List<Integer> parentId, String value) {
-        lock.writeLock().lock();
-        try {
-            CRDTChar parent = findNodeById(parentId, root);
-            if (parent == null) parent = root;
+    // Insert a new character at a visual position
+    public CRDTChar localInsert(int index, String value) {
+        CRDTChar right = (index >= 0 && index < charList.size()) ? charList.get(index) : null;
+        CRDTChar left = (index - 1 >= 0 && index - 1 < charList.size()) ? charList.get(index - 1) : null;
 
-            List<Integer> newId = new ArrayList<>(parent.id);
-            newId.add(generateRandomDigit());
+        List<Integer> newId = generateIdBetween(
+            left != null ? left.id : new ArrayList<>(),
+            right != null ? right.id : new ArrayList<>(),
+            0
+        );
 
-            CRDTChar newChar = new CRDTChar(value, newId, siteId);
-            parent.addChild(newChar);
-            return newChar;
-        } finally {
-            lock.writeLock().unlock();
-        }
+        CRDTChar newChar = new CRDTChar(value, newId, siteId);
+        insertSorted(newChar);
+        return newChar;
     }
 
-    // Handle a remote insert by reconstructing the tree path
+    // Apply a remote insert    
     public void remoteInsert(CRDTChar crdtChar) {
-        lock.writeLock().lock();
-        try {
-            CRDTChar parent = findParentForRemoteInsert(crdtChar);
-            if (parent != null && !parent.children.contains(crdtChar)) {
-                parent.addChild(crdtChar);
-            }
-        } finally {
-            lock.writeLock().unlock();
+        if (!charList.contains(crdtChar)) {
+            insertSorted(crdtChar);
         }
     }
 
-    // Soft deletion using tombstone flag
+    // Delete by ID
     public boolean deleteById(List<Integer> id, String originSite) {
-        lock.writeLock().lock();
-        try {
-            CRDTChar target = findNodeById(id, root);
-            if (target != null && target.siteId.equals(originSite)) {
-                target.tombstone = true;
-                return true;
-            }
-            return false;
-        } finally {
-            lock.writeLock().unlock();
-        }
+        return charList.removeIf(c -> c.id.equals(id) && c.siteId.equals(originSite));
     }
 
-    // Get plain text representation
+    // Get the string representation of the CRDT document
     public String toPlainText() {
-        lock.readLock().lock();
-        try {
-            StringBuilder sb = new StringBuilder();
-            buildText(root, sb);
-            return sb.toString();
-        } finally {
-            lock.readLock().unlock();
+        StringBuilder sb = new StringBuilder();
+        for (CRDTChar c : charList) {
+            sb.append(c.value);
+        }
+        return sb.toString();
+    }
+
+    // Inserts a char in the correct sorted position
+    private void insertSorted(CRDTChar newChar) {
+        int i = 0;
+        while (i < charList.size() && newChar.compareTo(charList.get(i)) > 0) {
+            i++;
+        }
+        charList.add(i, newChar);
+    }
+
+    // Generate a new ID between two existing ones
+    private List<Integer> generateIdBetween(List<Integer> left, List<Integer> right, int depth) {
+        int base = 10; // The base granularity
+
+        int leftId = (left.size() > depth) ? left.get(depth) : 0;
+        int rightId = (right.size() > depth) ? right.get(depth) : base;
+
+        if (rightId - leftId > 1) {
+            int newId = leftId + 1 + random.nextInt(rightId - leftId - 1);
+            List<Integer> newPath = new ArrayList<>(left.subList(0, depth));
+            newPath.add(newId);
+            return newPath;
+        } else {
+            List<Integer> prefix = new ArrayList<>(left.subList(0, depth));
+            prefix.add(leftId);
+            return generateIdBetween(left, right, depth + 1);
         }
     }
 
-    // Recursively build the text
-    private void buildText(CRDTChar node, StringBuilder sb) {
-        List<CRDTChar> snapshot = new ArrayList<>(node.children);
-        snapshot.sort(CRDTChar::compareTo);
-        for (CRDTChar child : snapshot) {
-            if (!child.tombstone) {
-                sb.append(child.value);
-            }
-            buildText(child, sb);
-        }
-    }
-
-    // Find a node in the tree by ID
-    private CRDTChar findNodeById(List<Integer> id, CRDTChar current) {
-        if (current.id.equals(id)) return current;
-        for (CRDTChar child : current.children) {
-            CRDTChar result = findNodeById(id, child);
-            if (result != null) return result;
-        }
-        return null;
-    }
-
-    // Get parent node from ID prefix
-    private CRDTChar findParentForRemoteInsert(CRDTChar crdtChar) {
-        if (crdtChar.id.isEmpty()) return root;
-        List<Integer> parentId = crdtChar.id.subList(0, crdtChar.id.size() - 1);
-        return findNodeById(parentId, root);
-    }
-
-    private int generateRandomDigit() {
-        return ThreadLocalRandom.current().nextInt(1, 10000);
-    }
-
-    public CRDTChar getRoot() {
-        return root;
-    }
     public List<CRDTChar> getCharList() {
-        List<CRDTChar> result = new ArrayList<>();
-        traverseTree(root, result);
-        return result;
+        return charList;
     }
-    
-    private void traverseTree(CRDTChar node, List<CRDTChar> list) {
-        node.children.sort(CRDTChar::compareTo);
-        for (CRDTChar child : node.children) {
-            if (!child.tombstone) {
-                list.add(child);
-            }
-            traverseTree(child, list);
-        }
-    }
-    
 }

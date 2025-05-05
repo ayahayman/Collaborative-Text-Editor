@@ -17,7 +17,7 @@ public class ClientApp {
 
     public static void openDocumentsFrame(int userId) {
         SwingUtilities.invokeLater(() -> {
-            new DocumentsFrame(userId, SERVER_HOST).setVisible(true);
+            new DocumentsFrame(userId, SERVER_HOST,12345).setVisible(true);
         });
     }
 }

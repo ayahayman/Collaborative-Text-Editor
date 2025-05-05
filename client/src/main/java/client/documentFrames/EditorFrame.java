@@ -55,7 +55,6 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 
-import client.ClientConnectionManager;
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
 
@@ -77,9 +76,10 @@ public class EditorFrame extends JFrame {
     private DefaultListModel<String> activeUserListModel;
     private JList<String> activeUserList;
     private static String SERVER_HOST;
+    private static int PORT;
+
 
     private static class CursorData {
-
         List<Integer> crdtId;
         Color color;
 
@@ -91,7 +91,7 @@ public class EditorFrame extends JFrame {
 
     private void connectToServer() {
         try {
-            socket = new Socket(SERVER_HOST, 12345);
+            socket = new Socket(SERVER_HOST, PORT);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
 
@@ -209,40 +209,31 @@ public class EditorFrame extends JFrame {
 
                         for (int i = 0; i < inserted.length(); i++) {
                             String ch = String.valueOf(inserted.charAt(i));
+                            int logicalPos = offset + i;
 
-                            // 🧱 Skip null/empty or whitespace-only characters
-                            if (ch == null || ch.trim().isEmpty()) {
-                                System.err.println("Skipped inserting null or empty character.");
-                                continue;
-                            }
+                            // Insert into CRDT
+                            CRDTChar crdtChar = crdtDoc.localInsert(logicalPos, ch);
 
-                            List<CRDTChar> chars = crdtDoc.getCharList();
-                            List<Integer> parentId;
-
-                            if (offset + i - 1 >= 0 && offset + i - 1 < chars.size()) {
-                                parentId = chars.get(offset + i - 1).id;
-                            } else {
-                                parentId = new ArrayList<>();
-                            }
-
-                            CRDTChar crdtChar = crdtDoc.localInsert(parentId, ch);
-                            if (crdtChar != null) {
-                                sendInsertCRDT(crdtChar);
-                            }
+                            // Send CRDTChar to server
                             sendInsertCRDT(crdtChar);
 
-                            // Cursor logic stays the same...
+                            // Update own cursor to follow inserted char
                             List<CRDTChar> updated = crdtDoc.getCharList();
                             int newPos = updated.indexOf(crdtChar);
-                            List<Integer> nextId;
+                            List<Integer> nextId ;
                             if (newPos + 1 < updated.size()) {
                                 nextId = updated.get(newPos + 1).id;
                             } else {
-                                nextId = List.of(-1);
+                                // Cursor is after the last character
+                                nextId = List.of(-1); // Special cursor marker (handled in repaintRemoteCursors)
                             }
 
                             remoteCursors.put(userId, new CursorData(nextId, getOwnCursorColor()));
                             sendCursorUpdate(nextId);
+                            SwingUtilities.invokeLater(() -> {
+                                editorArea.setCaretPosition(newPos + 1); // Adjust as needed
+                            });
+
                         }
 
                     } catch (BadLocationException ex) {
@@ -282,12 +273,13 @@ public class EditorFrame extends JFrame {
         });
     }
 
-    public EditorFrame(String docName, int userId, String role, String serverHost) {
-        this.SERVER_HOST = serverHost;
+    public EditorFrame(String docName, int userId, String role, String serverHost, int port) {
+        SERVER_HOST = serverHost;
+        PORT=port;
         this.docName = docName;
         this.userId = userId;
         this.role = role;
-        this.crdtDoc = new CRDTDocument(ClientConnectionManager.getSiteId());
+        this.crdtDoc = new CRDTDocument(String.valueOf(userId));
 
         setTitle("Editing: " + docName);
         setSize(900, 600);
@@ -383,7 +375,9 @@ public class EditorFrame extends JFrame {
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket(SERVER_HOST, 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getDocumentContent");
             out.writeUTF(docName);
@@ -398,7 +392,9 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket(SERVER_HOST, 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getSharingCode");
             out.writeUTF(docName);
@@ -456,7 +452,9 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket(SERVER_HOST, 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket(SERVER_HOST, PORT);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("saveDocumentContent");
             out.writeUTF(docName);
@@ -485,7 +483,9 @@ public class EditorFrame extends JFrame {
                 JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket(SERVER_HOST, 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
                 out.writeUTF("deleteDocument");
                 out.writeInt(userId);
@@ -694,21 +694,11 @@ public class EditorFrame extends JFrame {
         }
     }
 
+    // Helper methods
     private void sendInsertCRDT(CRDTChar c) {
         try {
-            if (c == null || c.value == null) {
-                System.err.println("[sendInsertCRDT] Skipped: value is null");
-                return;
-            }
-
-            String trimmedValue = c.value.trim();
-            if (trimmedValue.isEmpty()) {
-                System.err.println("[sendInsertCRDT] Skipped: value is empty or whitespace only");
-                return;
-            }
-
             out.writeUTF("crdt_insert");
-            out.writeUTF(c.value);  // This is now guaranteed non-null and non-empty
+            out.writeUTF(c.value);
             out.writeInt(c.id.size());
             for (int i : c.id) {
                 out.writeInt(i);
@@ -760,23 +750,34 @@ public class EditorFrame extends JFrame {
 
     private void updateTextArea(boolean restoreCaret) {
         isRemoteEdit = true;
-        int caret = editorArea.getCaretPosition();
+        // Store the current CRDT ID before updating
+        CursorData localCursor = remoteCursors.get(userId);
+        List<Integer> currentCrdtId = (localCursor != null) ? localCursor.crdtId : List.of(-1);
 
         String newText = crdtDoc.toPlainText();
         if (!editorArea.getText().equals(newText)) {
             editorArea.setText(newText);
         }
 
-        int newLength = editorArea.getText().length();
-        caret = Math.min(caret, newLength);
-
-        if (restoreCaret) {
-            editorArea.setCaretPosition(caret);
+        // Find the new caret position based on CRDT ID
+        int newCaretPos = 0;
+        List<CRDTChar> chars = crdtDoc.getCharList();
+        if (currentCrdtId.size() == 1 && currentCrdtId.get(0) == -1) {
+            newCaretPos = editorArea.getText().length(); // End of document
+        } else {
+            for (int i = 0; i < chars.size(); i++) {
+                if (chars.get(i).id.equals(currentCrdtId)) {
+                    newCaretPos = i;
+                    break;
+                }
+            }
         }
 
-        // Delay repaint of remote cursors so caret restores first
-        SwingUtilities.invokeLater(this::repaintRemoteCursors);
+        if (restoreCaret) {
+            editorArea.setCaretPosition(newCaretPos);
+        }
 
+        SwingUtilities.invokeLater(this::repaintRemoteCursors);
         isRemoteEdit = false;
     }
 
@@ -816,7 +817,6 @@ public class EditorFrame extends JFrame {
     }
 
     private static class ThinCursorPainter implements Highlighter.HighlightPainter {
-
         private final Color color;
 
         public ThinCursorPainter(Color color) {
@@ -835,6 +835,7 @@ public class EditorFrame extends JFrame {
     }
 
     private void updateOwnCursorCRDTIdFromCaret() {
+        if (isRemoteEdit) return; // Avoid updating during remote edits
         int caret = editorArea.getCaretPosition();
         List<CRDTChar> chars = crdtDoc.getCharList();
 
@@ -865,7 +866,9 @@ public class EditorFrame extends JFrame {
 
     private void fetchActiveUsers() {
         new Thread(() -> {
-            try (Socket socket = new Socket(SERVER_HOST, 12345); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (Socket socket = new Socket(SERVER_HOST, PORT);
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
                 out.writeUTF("getActiveUsers");
                 out.writeUTF(docName);
