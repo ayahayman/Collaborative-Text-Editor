@@ -1,6 +1,9 @@
 
 package crdt;
+
 import java.util.*;
+
+import client.UndoRedoOperation;
 
 public class CRDTDocument {
 
@@ -18,17 +21,16 @@ public class CRDTDocument {
         CRDTChar left = (index - 1 >= 0 && index - 1 < charList.size()) ? charList.get(index - 1) : null;
 
         List<Integer> newId = generateIdBetween(
-            left != null ? left.id : new ArrayList<>(),
-            right != null ? right.id : new ArrayList<>(),
-            0
-        );
+                left != null ? left.id : new ArrayList<>(),
+                right != null ? right.id : new ArrayList<>(),
+                0);
 
         CRDTChar newChar = new CRDTChar(value, newId, siteId);
         insertSorted(newChar);
         return newChar;
     }
 
-    // Apply a remote insert    
+    // Apply a remote insert
     public void remoteInsert(CRDTChar crdtChar) {
         if (!charList.contains(crdtChar)) {
             insertSorted(crdtChar);
@@ -80,4 +82,5 @@ public class CRDTDocument {
     public List<CRDTChar> getCharList() {
         return charList;
     }
+
 }

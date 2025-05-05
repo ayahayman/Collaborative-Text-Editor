@@ -1,5 +1,6 @@
 package client.documentFrames;
 
+import java.util.*;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Desktop;
@@ -19,10 +20,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -55,6 +52,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 
+import client.UndoRedoOperation;
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
 
@@ -77,7 +75,6 @@ public class EditorFrame extends JFrame {
     private JList<String> activeUserList;
     private static String SERVER_HOST;
     private static int PORT;
-
 
     private static class CursorData {
         List<Integer> crdtId;
@@ -206,21 +203,21 @@ public class EditorFrame extends JFrame {
                 if (event.getType() == DocumentEvent.EventType.INSERT) {
                     try {
                         String inserted = editorArea.getText(offset, length);
-
+                        List<CRDTChar> undoRedoStoredchars = new ArrayList<>();
                         for (int i = 0; i < inserted.length(); i++) {
                             String ch = String.valueOf(inserted.charAt(i));
                             int logicalPos = offset + i;
 
                             // Insert into CRDT
                             CRDTChar crdtChar = crdtDoc.localInsert(logicalPos, ch);
-
+                            undoRedoStoredchars.add(crdtChar);
                             // Send CRDTChar to server
                             sendInsertCRDT(crdtChar);
 
                             // Update own cursor to follow inserted char
                             List<CRDTChar> updated = crdtDoc.getCharList();
                             int newPos = updated.indexOf(crdtChar);
-                            List<Integer> nextId ;
+                            List<Integer> nextId;
                             if (newPos + 1 < updated.size()) {
                                 nextId = updated.get(newPos + 1).id;
                             } else {
@@ -235,6 +232,8 @@ public class EditorFrame extends JFrame {
                             });
 
                         }
+                        // Store the operation for undo/redo
+                        storeEditedState(undoRedoStoredchars, true);
 
                     } catch (BadLocationException ex) {
                         ex.printStackTrace();
@@ -275,7 +274,7 @@ public class EditorFrame extends JFrame {
 
     public EditorFrame(String docName, int userId, String role, String serverHost, int port) {
         SERVER_HOST = serverHost;
-        PORT=port;
+        PORT = port;
         this.docName = docName;
         this.userId = userId;
         this.role = role;
@@ -835,7 +834,8 @@ public class EditorFrame extends JFrame {
     }
 
     private void updateOwnCursorCRDTIdFromCaret() {
-        if (isRemoteEdit) return; // Avoid updating during remote edits
+        if (isRemoteEdit)
+            return; // Avoid updating during remote edits
         int caret = editorArea.getCaretPosition();
         List<CRDTChar> chars = crdtDoc.getCharList();
 
