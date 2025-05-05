@@ -19,11 +19,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
@@ -38,6 +35,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -47,7 +45,7 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.Highlighter;
 import javax.swing.text.JTextComponent;
 import javax.swing.undo.UndoableEdit;
-
+import java.util.*;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
@@ -55,9 +53,10 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 
+import client.UndoRedoOperation;
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
-
+import java.awt.event.ActionEvent; 
 public class EditorFrame extends JFrame {
 
     private JTextArea editorArea;
@@ -77,9 +76,12 @@ public class EditorFrame extends JFrame {
     private JList<String> activeUserList;
     private static String SERVER_HOST;
     private static int PORT;
-
+    Stack<UndoRedoOperation> undoStack = new Stack<>();
+    Stack<UndoRedoOperation> redoStack = new Stack<>();
+    private  boolean suppressInitialLoadEdits = true; // Flag to track if the user is writing for the first time
 
     private static class CursorData {
+
         List<Integer> crdtId;
         Color color;
 
@@ -202,25 +204,24 @@ public class EditorFrame extends JFrame {
                 AbstractDocument.DefaultDocumentEvent event = (AbstractDocument.DefaultDocumentEvent) edit;
                 int offset = event.getOffset();
                 int length = event.getLength();
-
+                List<CRDTChar> undoRedoStoredchars = new ArrayList<>(); // Store for undo/redo
                 if (event.getType() == DocumentEvent.EventType.INSERT) {
                     try {
                         String inserted = editorArea.getText(offset, length);
-
                         for (int i = 0; i < inserted.length(); i++) {
                             String ch = String.valueOf(inserted.charAt(i));
                             int logicalPos = offset + i;
 
                             // Insert into CRDT
                             CRDTChar crdtChar = crdtDoc.localInsert(logicalPos, ch);
-
+                            undoRedoStoredchars.add(crdtChar);
                             // Send CRDTChar to server
                             sendInsertCRDT(crdtChar);
 
                             // Update own cursor to follow inserted char
                             List<CRDTChar> updated = crdtDoc.getCharList();
                             int newPos = updated.indexOf(crdtChar);
-                            List<Integer> nextId ;
+                            List<Integer> nextId;
                             if (newPos + 1 < updated.size()) {
                                 nextId = updated.get(newPos + 1).id;
                             } else {
@@ -236,6 +237,8 @@ public class EditorFrame extends JFrame {
 
                         }
 
+                        storeEditState(undoRedoStoredchars, true); // Store as insert operation
+
                     } catch (BadLocationException ex) {
                         ex.printStackTrace();
                     }
@@ -247,7 +250,9 @@ public class EditorFrame extends JFrame {
                         int targetIndex = Math.min(offset, chars.size() - 1); // Clamp to last valid index
                         if (targetIndex >= 0 && targetIndex < chars.size()) {
                             CRDTChar toDelete = chars.get(targetIndex);
+                            undoRedoStoredchars.add(toDelete);
                             sendDeleteCRDT(toDelete.id, toDelete.siteId);
+
                             crdtDoc.deleteById(toDelete.id, toDelete.siteId);
                         }
                     }
@@ -275,7 +280,7 @@ public class EditorFrame extends JFrame {
 
     public EditorFrame(String docName, int userId, String role, String serverHost, int port) {
         SERVER_HOST = serverHost;
-        PORT=port;
+        PORT = port;
         this.docName = docName;
         this.userId = userId;
         this.role = role;
@@ -310,7 +315,9 @@ public class EditorFrame extends JFrame {
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton undoButton = new JButton("Undo");
+        undoButton.addActionListener(e -> undo());
         JButton redoButton = new JButton("Redo");
+        redoButton.addActionListener(e -> redo());
 
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
@@ -344,6 +351,7 @@ public class EditorFrame extends JFrame {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
                 sendDisconnectSignal();
+                clearUndoRedoStacks();
             }
         });
 
@@ -365,6 +373,23 @@ public class EditorFrame extends JFrame {
                 updateOwnCursorCRDTIdFromCaret();
             }
         });
+        // Undo: Ctrl + Z
+        editorArea.getInputMap().put(KeyStroke.getKeyStroke("control Z"), "undoAction");
+        editorArea.getActionMap().put("undoAction", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                undo();
+            }
+        });
+
+        // Redo: Ctrl + Shift + Z
+        editorArea.getInputMap().put(KeyStroke.getKeyStroke("control shift Z"), "redoAction");
+        editorArea.getActionMap().put("redoAction", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                redo();
+            }
+        });
 
     }
 
@@ -375,9 +400,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket(SERVER_HOST, PORT);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getDocumentContent");
             out.writeUTF(docName);
@@ -386,15 +409,15 @@ public class EditorFrame extends JFrame {
             if (role.equals("viewer")) {
                 editorArea.setEditable(false);
             }
+            SwingUtilities.invokeLater(() -> suppressInitialLoadEdits = false);
+
 
         } catch (IOException e) {
             e.printStackTrace();
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket(SERVER_HOST, PORT);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("getSharingCode");
             out.writeUTF(docName);
@@ -452,9 +475,7 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket(SERVER_HOST, PORT);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
             out.writeUTF("saveDocumentContent");
             out.writeUTF(docName);
@@ -483,9 +504,7 @@ public class EditorFrame extends JFrame {
                 JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket(SERVER_HOST, PORT);
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
                 out.writeUTF("deleteDocument");
                 out.writeInt(userId);
@@ -817,6 +836,7 @@ public class EditorFrame extends JFrame {
     }
 
     private static class ThinCursorPainter implements Highlighter.HighlightPainter {
+
         private final Color color;
 
         public ThinCursorPainter(Color color) {
@@ -835,7 +855,10 @@ public class EditorFrame extends JFrame {
     }
 
     private void updateOwnCursorCRDTIdFromCaret() {
-        if (isRemoteEdit) return; // Avoid updating during remote edits
+        if (isRemoteEdit) {
+            return; // Avoid updating during remote edits
+
+        }
         int caret = editorArea.getCaretPosition();
         List<CRDTChar> chars = crdtDoc.getCharList();
 
@@ -866,9 +889,7 @@ public class EditorFrame extends JFrame {
 
     private void fetchActiveUsers() {
         new Thread(() -> {
-            try (Socket socket = new Socket(SERVER_HOST, PORT);
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
                 out.writeUTF("getActiveUsers");
                 out.writeUTF(docName);
@@ -910,5 +931,151 @@ public class EditorFrame extends JFrame {
                 .setContents(new StringSelection(text), null);
         JOptionPane.showMessageDialog(this, "Copied to clipboard: " + text);
     }
+    private void storeEditState(List<CRDTChar> editedState, boolean thisOperationIsForInsertion) {
+        System.out.println("Storing edit state: " + editedState + " is insert: " + thisOperationIsForInsertion);
+        try {
+            if (suppressInitialLoadEdits || isRemoteEdit)
+                return;
+            if (undoStack.size() >= 3) {
+                undoStack.remove(0);
+            }
 
+            // Caret position handling
+            int caretPosition = editorArea.getCaretPosition();
+            if (thisOperationIsForInsertion) {
+                if (caretPosition - editedState.size() < 0) {
+                    caretPosition = 0;
+                } else {
+                    caretPosition -= editedState.size();
+                }
+            } else {
+                caretPosition += editedState.size();
+            }
+
+            // Adjusted for insert/delete
+            System.out.println(
+                    "caret position dakhel undo: " + caretPosition + " undo insertion: " + thisOperationIsForInsertion);
+            UndoRedoOperation operation = new UndoRedoOperation(editedState,
+                    thisOperationIsForInsertion, false, caretPosition);
+            undoStack.push(operation);
+            redoStack.clear(); // Clear redo stack on new edit
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void undo() {
+        System.out.println("Undo called");
+        try {
+            if (!undoStack.isEmpty()) {
+                UndoRedoOperation operation = undoStack.pop();
+                if (operation.thisOperationIsForInsertion()) {
+                    for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                        // Perform the undo operation for insert
+                        crdtDoc.deleteById(crdtChar.id, crdtChar.siteId);
+                        sendDeleteCRDT(crdtChar.id, crdtChar.siteId); // Send delete to server for remote users
+
+
+                    }
+
+                } else {
+                    for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                        // Perform the undo operation for delete
+                        crdtDoc.remoteInsert(crdtChar);
+                        // Send the CRDTChar to the server for remote users
+                        sendInsertCRDT(crdtChar);
+
+                    }
+
+                }
+                updateTextArea(true); // Refresh editor with CRDT state
+                editorArea.setCaretPosition(operation.caretPosition());
+                updateOwnCursorCRDTIdFromCaret();
+
+                if (redoStack.size() >= 3) {
+                    redoStack.remove(0);
+                }
+
+                if (operation.thisOperationIsForInsertion()) {
+                    operation.caretPosition(operation.caretPosition() + operation.editLength());
+
+                } else {
+                    if (operation.caretPosition() - operation.editLength() < 0) {
+                        operation.caretPosition(0);
+                    } else {
+                        operation.caretPosition(operation.caretPosition() - operation.editLength());
+                    }
+
+                }
+
+                System.out.println(
+                        "caret position dakhel redo: " + operation.caretPosition() + " undo insertion: " + operation
+                                .thisOperationIsForInsertion());
+                operation.FlipType();
+                redoStack.push(operation);
+
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void redo() {
+        System.out.println("Redoing operation...");
+        try {
+            if (!redoStack.isEmpty()) {
+                UndoRedoOperation operation = redoStack.pop();
+                if (operation.thisOperationIsForInsertion()) {
+                    for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                        // Perform the redo operation for insert
+                        crdtDoc.remoteInsert(crdtChar);
+                        // Send the CRDTChar to the server for remote users
+                        sendInsertCRDT(crdtChar);
+
+                    }
+
+                } else {
+
+                    for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                        // Perform the redo operation for delete
+                        crdtDoc.deleteById(crdtChar.id, crdtChar.siteId);
+                        sendDeleteCRDT(crdtChar.id, crdtChar.siteId); // Send delete to server for remote users
+
+                    }
+
+                }
+                updateTextArea(true); // Refresh editor with CRDT state
+                editorArea.setCaretPosition(operation.caretPosition());
+                updateOwnCursorCRDTIdFromCaret();
+                if (undoStack.size() >= 3) {
+                    undoStack.remove(0);
+                }
+
+                if (operation.thisOperationIsForInsertion()) {
+                    if (operation.caretPosition() - operation.editLength() < 0) {
+                        operation.caretPosition(0);
+                    } else {
+                        operation.caretPosition(operation.caretPosition() - operation.editLength());
+                    }
+
+                } else {
+                    operation.caretPosition(operation.caretPosition() + operation.editLength());
+
+                }
+                operation.FlipType();
+                System.out.println(
+                        "caret position dakhel undo: " + operation.caretPosition() + " undo insertion: " + operation
+                                .thisOperationIsForInsertion());
+
+                undoStack.push(operation);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void clearUndoRedoStacks() {
+        undoStack.clear();
+        redoStack.clear();
+    }
 }
