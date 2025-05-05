@@ -161,7 +161,8 @@ public class DocumentsFrame extends JFrame {
 
         JLabel iconLabel;
         try {
-            ImageIcon icon = new ImageIcon(getClass().getResource("src/assets/file_flat.png"));
+            ImageIcon icon = new ImageIcon(getClass().getResource("/assets/file_flat.png"));
+
             Image scaled = icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH);
             iconLabel = new JLabel(new ImageIcon(scaled));
         } catch (Exception e) {

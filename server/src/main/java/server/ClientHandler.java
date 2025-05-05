@@ -209,6 +209,8 @@ public class ClientHandler extends Thread {
             // Send the document name and the sharing code to the client
             out.writeUTF(doc.getName());
             out.writeUTF(sharingCode);
+            out.writeUTF("owner"); // Send the role as "owner" for now
+
         }
     }
 
