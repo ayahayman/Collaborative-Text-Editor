@@ -1,4 +1,10 @@
-C:\Users\Ayah\Desktop\UNI SHIT\Semester 8\Advanced Programming Techniques\project\Collaborative-Text-Editor\client\src\main\java\client\ClientApp.java
-C:\Users\Ayah\Desktop\UNI SHIT\Semester 8\Advanced Programming Techniques\project\Collaborative-Text-Editor\client\src\main\java\client\GradientPanel.java
-C:\Users\Ayah\Desktop\UNI SHIT\Semester 8\Advanced Programming Techniques\project\Collaborative-Text-Editor\client\src\main\java\client\LoginFrame.java
-C:\Users\Ayah\Desktop\UNI SHIT\Semester 8\Advanced Programming Techniques\project\Collaborative-Text-Editor\client\src\main\java\client\SignUpFrame.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\ClientApp.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\ClientConnectionManager.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\documentFrames\DocumentDisplayItem.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\documentFrames\DocumentsFrame.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\documentFrames\EditorFrame.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\loginFrames\GradientPanel.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\loginFrames\LoginFrame.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\client\loginFrames\SignUpFrame.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\crdt\CRDTChar.java
+D:\Projects\Collaborative-Text-Editor\client\src\main\java\crdt\CRDTDocument.java

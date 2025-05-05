@@ -1,3 +1,6 @@
+crdt\CRDTDocument.class
+crdt\CRDTChar.class
 server\Database.class
 server\CollabServer.class
+server\Document.class
 server\ClientHandler.class

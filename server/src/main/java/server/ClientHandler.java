@@ -109,7 +109,8 @@ public class ClientHandler extends Thread {
             e.printStackTrace();
         } finally {
             try {
-                System.out.println("🧵 Thread " + Thread.currentThread().getName() + " finished for client " + clientSocket.getInetAddress());
+                System.out.println("🧵 Thread " + Thread.currentThread().getName() + " finished for client "
+                        + clientSocket.getInetAddress());
                 // Remove from active editors
                 if (currentDocument != null) {
                     CopyOnWriteArrayList<ClientHandler> editors = CollabServer.activeEditors.get(currentDocument);
@@ -308,7 +309,7 @@ public class ClientHandler extends Thread {
     private void handleSyncDocument() throws IOException {
         this.currentDocument = in.readUTF();
         this.userId = in.readInt();
-        this.role = in.readUTF();             // role
+        this.role = in.readUTF(); // role
         this.realTimeMode = true;
 
         // Add this client to the global document editor list
@@ -324,7 +325,8 @@ public class ClientHandler extends Thread {
         int deletedLength = in.readInt();
 
         // Broadcast this edit to all other clients editing this document
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
+                new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("edit");
@@ -357,7 +359,8 @@ public class ClientHandler extends Thread {
         }
 
         // Broadcast to other clients (same as before)
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
+                new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("crdt_insert");
@@ -383,7 +386,8 @@ public class ClientHandler extends Thread {
         String site = in.readUTF();
         System.out.println("Delete from " + site + " at ID " + id);
         // Broadcast to other clients
-        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>())) {
+        for (ClientHandler client : CollabServer.activeEditors.getOrDefault(currentDocument,
+                new CopyOnWriteArrayList<>())) {
             if (client != this && client.realTimeMode) {
                 try {
                     client.out.writeUTF("crdt_delete");
