@@ -55,7 +55,7 @@ public class DocumentsFrame extends JFrame {
 
     public DocumentsFrame(int userId, String serverHost, int port) {
         this.userId = userId;
-        PORT=port;
+        PORT = port;
         SERVER_HOST = serverHost;
         setTitle("My Documents");
         setSize(900, 600);
@@ -122,7 +122,11 @@ public class DocumentsFrame extends JFrame {
             for (int i = 0; i < count; i++) {
                 String docName = in.readUTF();
                 String code = in.readUTF();
+                System.out.println("🫣🫣🫣Document Name: " + docName + ", Code: " + code);
                 String role = in.readUTF();
+
+                System.out.println("🫣🫣🫣Role: " + role);
+
                 DocumentEntry entry = new DocumentEntry(docName, code, role);
                 documentGrid.add(createDocumentCard(entry));
 
@@ -157,7 +161,8 @@ public class DocumentsFrame extends JFrame {
 
         JLabel iconLabel;
         try {
-            ImageIcon icon = new ImageIcon(getClass().getResource("src/assets/file_flat.png"));
+            ImageIcon icon = new ImageIcon(getClass().getResource("/assets/file_flat.png"));
+
             Image scaled = icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH);
             iconLabel = new JLabel(new ImageIcon(scaled));
         } catch (Exception e) {
@@ -204,7 +209,7 @@ public class DocumentsFrame extends JFrame {
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     // Double-click from owner's document list = owner role
-                    new EditorFrame(entry.docName, userId, entry.role, SERVER_HOST,PORT).setVisible(true);
+                    new EditorFrame(entry.docName, userId, entry.role, SERVER_HOST, PORT).setVisible(true);
                 }
             }
         });
@@ -216,6 +221,7 @@ public class DocumentsFrame extends JFrame {
         String name = JOptionPane.showInputDialog(this, "Enter Document Name:");
         if (name != null && !name.trim().isEmpty()) {
             try (Socket socket = new Socket(SERVER_HOST, PORT);
+
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                     DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
@@ -276,7 +282,7 @@ public class DocumentsFrame extends JFrame {
                     String docName = in.readUTF();
                     String docContent = in.readUTF();
                     String role = response.contains("view") ? "viewer" : "editor";
-                    new EditorFrame(docName, userId, role, SERVER_HOST,PORT).setVisible(true);
+                    new EditorFrame(docName, userId, role, SERVER_HOST, PORT).setVisible(true);
 
                     fetchDocuments();
                 } else {
