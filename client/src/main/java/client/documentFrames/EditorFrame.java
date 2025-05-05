@@ -98,10 +98,12 @@ public class EditorFrame extends JFrame {
             in = new DataInputStream(socket.getInputStream());
 
             // Notify server of intent to sync a document
-            out.writeUTF("syncDocument");
-            out.writeUTF(docName);
-            out.writeInt(userId);
-            out.writeUTF(role);
+            synchronized (out) {
+                out.writeUTF("syncDocument");
+                out.writeUTF(docName);
+                out.writeInt(userId);
+                out.writeUTF(role);
+            }
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -402,8 +404,10 @@ public class EditorFrame extends JFrame {
         // Fetch document content
         try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-            out.writeUTF("getDocumentContent");
-            out.writeUTF(docName);
+            synchronized (out) {
+                out.writeUTF("getDocumentContent");
+                out.writeUTF(docName);
+            }
             String content = in.readUTF();
             SwingUtilities.invokeLater(() -> editorArea.setText(content));
             if (role.equals("viewer")) {
@@ -419,8 +423,10 @@ public class EditorFrame extends JFrame {
         // Fetch both editor and viewer codes
         try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-            out.writeUTF("getSharingCode");
-            out.writeUTF(docName);
+            synchronized (out) {
+                out.writeUTF("getSharingCode");
+                out.writeUTF(docName);
+            }
 
             String editorCode = in.readUTF();
             String viewerCode = in.readUTF();
@@ -477,9 +483,11 @@ public class EditorFrame extends JFrame {
     private void saveContent() {
         try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-            out.writeUTF("saveDocumentContent");
-            out.writeUTF(docName);
-            out.writeUTF(editorArea.getText());
+            synchronized (out) {
+                out.writeUTF("saveDocumentContent");
+                out.writeUTF(docName);
+                out.writeUTF(editorArea.getText());
+            }
 
             in.readUTF();
 
@@ -506,9 +514,11 @@ public class EditorFrame extends JFrame {
         if (confirm == JOptionPane.YES_OPTION) {
             try (Socket socket = new Socket(SERVER_HOST, PORT); DataOutputStream out = new DataOutputStream(socket.getOutputStream()); DataInputStream in = new DataInputStream(socket.getInputStream())) {
 
-                out.writeUTF("deleteDocument");
-                out.writeInt(userId);
-                out.writeUTF(docName);
+                synchronized (out) {
+                    out.writeUTF("deleteDocument");
+                    out.writeInt(userId);
+                    out.writeUTF(docName);
+                }
 
                 String response = in.readUTF();
                 if (response.equals("Document deleted successfully")) {
@@ -716,26 +726,31 @@ public class EditorFrame extends JFrame {
     // Helper methods
     private void sendInsertCRDT(CRDTChar c) {
         try {
-            out.writeUTF("crdt_insert");
-            out.writeUTF(c.value);
-            out.writeInt(c.id.size());
-            for (int i : c.id) {
-                out.writeInt(i);
+            synchronized (out) {
+                out.writeUTF("crdt_insert");
+                out.writeUTF(c.value);
+                out.writeInt(c.id.size());
+                for (int i : c.id) {
+                    out.writeInt(i);
+                }
+                out.writeUTF(c.siteId);
             }
-            out.writeUTF(c.siteId);
         } catch (IOException e) {
             e.printStackTrace();
         }
+
     }
 
     private void sendDeleteCRDT(List<Integer> id, String siteId) {
         try {
-            out.writeUTF("crdt_delete");
-            out.writeInt(id.size());
-            for (int i : id) {
-                out.writeInt(i);
+            synchronized (out) {
+                out.writeUTF("crdt_delete");
+                out.writeInt(id.size());
+                for (int i : id) {
+                    out.writeInt(i);
+                }
+                out.writeUTF(siteId);
             }
-            out.writeUTF(siteId);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -743,7 +758,9 @@ public class EditorFrame extends JFrame {
 
     private void performCRDTSync() {
         try {
-            out.writeUTF("crdt_sync");
+            synchronized (out) {
+                out.writeUTF("crdt_sync");
+            }
             int count = in.readInt();
 
             for (int i = 0; i < count; i++) {
@@ -875,12 +892,14 @@ public class EditorFrame extends JFrame {
 
     private void sendCursorUpdate(List<Integer> id) {
         try {
-            out.writeUTF("cursor_update");
-            out.writeInt(userId);
-            out.writeUTF(docName);
-            out.writeInt(id.size());
-            for (int i : id) {
-                out.writeInt(i);
+            synchronized (out) {
+                out.writeUTF("cursor_update");
+                out.writeInt(userId);
+                out.writeUTF(docName);
+                out.writeInt(id.size());
+                for (int i : id) {
+                    out.writeInt(i);
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -917,9 +936,11 @@ public class EditorFrame extends JFrame {
 
     private void sendDisconnectSignal() {
         try {
-            out.writeUTF("disconnectFromDocument");
-            out.writeUTF(docName);
-            out.writeInt(userId);
+            synchronized (out) {
+                out.writeUTF("disconnectFromDocument");
+                out.writeUTF(docName);
+                out.writeInt(userId);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
