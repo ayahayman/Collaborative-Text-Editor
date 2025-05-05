@@ -1,5 +1,7 @@
 package client.documentFrames;
 
+import java.util.*;
+
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Desktop;
@@ -19,10 +21,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -57,6 +55,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
+import client.UndoRedoOperation;
 
 public class EditorFrame extends JFrame {
 
@@ -76,6 +75,8 @@ public class EditorFrame extends JFrame {
     private DefaultListModel<String> activeUserListModel;
     private JList<String> activeUserList;
     private static String SERVER_HOST;
+    Stack<UndoRedoOperation> undoStack = new Stack<>();
+    Stack<UndoRedoOperation> redoStack = new Stack<>();
 
     private static class CursorData {
         List<Integer> crdtId;
@@ -200,7 +201,7 @@ public class EditorFrame extends JFrame {
                 AbstractDocument.DefaultDocumentEvent event = (AbstractDocument.DefaultDocumentEvent) edit;
                 int offset = event.getOffset();
                 int length = event.getLength();
-
+                List<CRDTChar> undoRedoStoredchars = new ArrayList<>(); // Store for undo/redo
                 if (event.getType() == DocumentEvent.EventType.INSERT) {
                     try {
                         String inserted = editorArea.getText(offset, length);
@@ -211,7 +212,8 @@ public class EditorFrame extends JFrame {
 
                             // Insert into CRDT
                             CRDTChar crdtChar = crdtDoc.localInsert(logicalPos, ch);
-
+                            // Store for undo/redo
+                            undoRedoStoredchars.add(crdtChar);
                             // Send CRDTChar to server
                             sendInsertCRDT(crdtChar);
 
@@ -230,6 +232,8 @@ public class EditorFrame extends JFrame {
                             sendCursorUpdate(nextId);
 
                         }
+                        // Store the operation in the undo stack
+                        storeEditedState(undoRedoStoredchars, true); // Store as insert operation
 
                     } catch (BadLocationException ex) {
                         ex.printStackTrace();
@@ -242,10 +246,13 @@ public class EditorFrame extends JFrame {
                         int targetIndex = Math.min(offset, chars.size() - 1); // Clamp to last valid index
                         if (targetIndex >= 0 && targetIndex < chars.size()) {
                             CRDTChar toDelete = chars.get(targetIndex);
+                            undoRedoStoredchars.add(toDelete);
                             sendDeleteCRDT(toDelete.id, toDelete.siteId);
                             crdtDoc.deleteById(toDelete.id, toDelete.siteId);
                         }
                     }
+                    // Store the operation in the undo stack
+                    storeEditedState(undoRedoStoredchars, false); // Store as delete operation
 
                     // Update cursor position safely
                     List<CRDTChar> updated = crdtDoc.getCharList();
@@ -304,7 +311,9 @@ public class EditorFrame extends JFrame {
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton undoButton = new JButton("Undo");
+        undoButton.addActionListener(e -> undo());
         JButton redoButton = new JButton("Redo");
+        redoButton.addActionListener(e -> redo());
 
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
@@ -891,6 +900,75 @@ public class EditorFrame extends JFrame {
                 .getSystemClipboard()
                 .setContents(new StringSelection(text), null);
         JOptionPane.showMessageDialog(this, "Copied to clipboard: " + text);
+    }
+
+    private void storeEditedState(List<CRDTChar> editedState, boolean isInsert) {
+        if (undoStack.size() >= 3) {
+            undoStack.remove(0);
+        }
+        System.out.println("\n❤️❤️❤️❤️Storing edited state: " + editedState + ", isInsert: " + isInsert
+                + ", undoStack size: " + undoStack.size() + ", redoStack size: " + redoStack.size());
+        undoStack.push(new UndoRedoOperation(editedState, isInsert, true));
+        redoStack.clear();
+    }
+
+    private void undo() {
+
+        if (!undoStack.isEmpty()) {
+            UndoRedoOperation operation = undoStack.pop();
+            if (operation.isInsert()) {
+                for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                    // Perform the undo operation for insert
+                    crdtDoc.deleteById(crdtChar.id, crdtChar.siteId);
+
+                }
+                updateTextArea(true); // Refresh editor with CRDT state
+            } else {
+                for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                    // Perform the undo operation for delete
+                    crdtDoc.remoteInsert(crdtChar);
+                    // Send the CRDTChar to the server for remote users
+                    sendInsertCRDT(crdtChar);
+
+                }
+                updateTextArea(true); // Refresh editor with CRDT state
+            }
+            operation.FlipType();
+            if (redoStack.size() >= 3) {
+                redoStack.remove(0);
+            }
+            redoStack.push(operation);
+
+        }
+    }
+
+    private void redo() {
+        System.out.println("\n❤️❤️❤️❤️Redoing operation, redoStack size: " + redoStack.size());
+
+        if (!redoStack.isEmpty()) {
+            UndoRedoOperation operation = redoStack.pop();
+            if (operation.isInsert()) {
+                for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                    // Perform the redo operation for delete
+                    crdtDoc.deleteById(crdtChar.id, crdtChar.siteId);
+                }
+                updateTextArea(true); // Refresh editor with CRDT state
+
+            } else {
+                for (CRDTChar crdtChar : operation.getAffectedChars()) {
+                    // Perform the redo operation for insert
+                    crdtDoc.remoteInsert(crdtChar);
+                    // Send the CRDTChar to the server for remote users
+                    sendInsertCRDT(crdtChar);
+                }
+                updateTextArea(true); // Refresh editor with CRDT state
+            }
+            operation.FlipType();
+            if (undoStack.size() >= 3) {
+                undoStack.remove(0);
+            }
+            undoStack.push(operation);
+        }
     }
 
 }
