@@ -9,6 +9,8 @@ public class ClientConnectionManager {
     private static Socket socket;
     private static DataOutputStream out;
     private static DataInputStream in;
+    private static String siteId; // 🆕 client identifier for CRDT operations
+
 
     public static void connect(String host, int port) throws IOException {
         if (socket == null || socket.isClosed()) {
@@ -30,5 +32,13 @@ public class ClientConnectionManager {
         if (socket != null && !socket.isClosed()) {
             socket.close();
         }
+    }
+    // 🆕 For CRDT usage
+    public static void setSiteId(String id) {
+        siteId = id;
+    }
+
+    public static String getSiteId() {
+        return siteId;
     }
 }
