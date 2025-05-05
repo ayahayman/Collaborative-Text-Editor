@@ -6,8 +6,8 @@ import client.documentFrames.DocumentsFrame;
 import client.loginFrames.LoginFrame;
 
 public class ClientApp {
-    public static final String SERVER_HOST = "serveo.net";; // Server host address
-    public static final int PORT = 36873; // Server port number
+    public static final String SERVER_HOST = "localhost";; // Server host address
+    public static final int PORT = 12345; // Server port number
 
     public static void main(String[] args) {
         // Launch the login screen when the application starts
@@ -18,7 +18,7 @@ public class ClientApp {
 
     public static void openDocumentsFrame(int userId) {
         SwingUtilities.invokeLater(() -> {
-            new DocumentsFrame(userId, SERVER_HOST, 36873).setVisible(true);
+            new DocumentsFrame(userId, SERVER_HOST, PORT).setVisible(true);
         });
     }
 }
