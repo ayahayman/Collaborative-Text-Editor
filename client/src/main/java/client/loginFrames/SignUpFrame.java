@@ -135,7 +135,7 @@ public class SignUpFrame extends JFrame {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
 
-        try (Socket socket = new Socket(SERVER_HOST, 39388);
+        try (Socket socket = new Socket(SERVER_HOST, 12345);
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DataInputStream in = new DataInputStream(socket.getInputStream())) {
 

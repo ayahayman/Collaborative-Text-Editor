@@ -6,7 +6,7 @@ import client.documentFrames.DocumentsFrame;
 import client.loginFrames.LoginFrame;
 
 public class ClientApp {
-    public static final String SERVER_HOST = "serveo.net";; // Server host address
+    public static final String SERVER_HOST = "localhost";; // Server host address
 
     public static void main(String[] args) {
         // Launch the login screen when the application starts

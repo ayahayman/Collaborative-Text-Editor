@@ -1,15 +1,30 @@
 package client.loginFrames;
 
-import javax.swing.*;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.GridBagLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JTextField;
 
 import client.ClientApp;
 import client.ClientConnectionManager;
-
-import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.io.*;
-import java.net.*;
 
 public class LoginFrame extends JFrame {
     private static String SERVER_HOST;
@@ -120,7 +135,7 @@ public class LoginFrame extends JFrame {
 
         try {
             // Open shared connection
-            ClientConnectionManager.connect(SERVER_HOST, 39388);
+            ClientConnectionManager.connect(SERVER_HOST, 12345);
             DataOutputStream out = ClientConnectionManager.getOut();
             DataInputStream in = ClientConnectionManager.getIn();
 
