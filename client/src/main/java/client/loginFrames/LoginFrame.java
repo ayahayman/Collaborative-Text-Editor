@@ -147,6 +147,13 @@ public class LoginFrame extends JFrame {
             String response = in.readUTF();
             if ("Login successful".equals(response)) {
                 int userId = in.readInt();
+                String sessionId = in.readUTF(); // Store the session ID
+
+                // Set these properties for reconnection support
+                ClientConnectionManager.setUserId(userId);
+                ClientConnectionManager.setSessionId(sessionId);
+                ClientConnectionManager.setSiteId(String.valueOf(userId)); // Also set siteId for CRDT
+
                 JOptionPane.showMessageDialog(this, "Login successful!");
 
                 // Launch app using persistent socket

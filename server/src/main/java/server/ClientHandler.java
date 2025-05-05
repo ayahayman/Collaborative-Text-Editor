@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ClientHandler extends Thread {
@@ -22,6 +25,11 @@ public class ClientHandler extends Thread {
     private int userId = -1; // Used for tracking the user
     private String role = null; // Used for tracking the user's role (editor/viewer)
     private boolean realTimeMode = false;
+    private String sessionId = null;
+    private long lastActive = System.currentTimeMillis();
+    private Queue<Message> pendingMessages = new ConcurrentLinkedQueue<>();
+    private boolean disconnected = false;
+    private String initialCommand = null; // To handle first command after reconnect
 
     public ClientHandler(Socket socket) {
         this.clientSocket = socket;
@@ -33,87 +41,225 @@ public class ClientHandler extends Thread {
         }
     }
 
+    // For reconnecting an existing session
+    public ClientHandler(Socket socket, String sessionId) {
+        this(socket);
+        this.sessionId = sessionId;
+        ClientHandler oldHandler = CollabServer.sessionMap.get(sessionId);
+        if (oldHandler != null) {
+            // Transfer state from old handler
+            this.userId = oldHandler.userId;
+            this.currentDocument = oldHandler.currentDocument;
+            this.role = oldHandler.role;
+            this.pendingMessages = oldHandler.pendingMessages;
+            this.realTimeMode = oldHandler.realTimeMode;
+
+            // Update active editors
+            if (currentDocument != null) {
+                CollabServer.activeEditors
+                        .getOrDefault(currentDocument, new CopyOnWriteArrayList<>())
+                        .remove(oldHandler);
+                CollabServer.activeEditors
+                        .getOrDefault(currentDocument, new CopyOnWriteArrayList<>())
+                        .add(this);
+            }
+        }
+    }
+
+    public void setInitialCommand(String command) {
+        this.initialCommand = command;
+    }
+
     @Override
     public void run() {
         try {
-            while (true) {
+            // If reconnecting, process any pending messages
+            if (sessionId != null && !pendingMessages.isEmpty()) {
+                processPendingMessages();
+            }
+
+            // Handle initial command if we have one
+            if (initialCommand != null) {
+                processCommand(initialCommand);
+                initialCommand = null;
+            }
+
+            while (!disconnected) {
                 String requestType = null;
                 try {
                     requestType = in.readUTF();
+                    lastActive = System.currentTimeMillis();
                 } catch (EOFException eof) {
-                    // Client closed the connection; exit the loop gracefully
+                    // Client disconnected
+                    handleDisconnection();
+                    break;
+                } catch (IOException ioe) {
+                    // Socket error/connection reset
+                    handleDisconnection();
                     break;
                 }
-                System.out.println("Received request: " + requestType);
-                switch (requestType) {
-                    case "login":
-                        handleLogin();
-                        break;
-                    case "signup":
-                        handleSignup();
-                        break;
-                    case "getDocuments":
-                        handleDocumentRequest();
-                        break;
-                    case "createDocument":
-                        handleCreateDocument();
-                        break;
-                    case "getDocumentContent":
-                        handleGetDocumentContent();
-                        break;
-                    case "saveDocumentContent":
-                        handleSaveDocumentContent();
-                        break;
-                    case "deleteDocument":
-                        handleDeleteDocument();
-                        break;
-                    case "joinDocument":
-                        handleJoinDocument();
-                        break;
-                    case "getSharingCode":
-                        handleGetSharingCode();
-                        break;
-                    case "syncDocument":
-                        handleSyncDocument();
-                        break;
-                    case "edit":
-                        handleEditBroadcast();
-                        break;
-                    case "crdt_insert":
-                        handleCRDTInsert();
-                        break;
-                    case "crdt_delete":
-                        handleCRDTDelete();
-                        break;
-                    case "crdt_sync":
-                        handleCRDTSync();
-                        break;
-                    case "cursor_update":
-                        handleCursorUpdate();
-                        break;
-                    case "getActiveUsers":
-                        handleGetActiveUsers();
-                        break;
-                    case "disconnectFromDocument":
-                        handleDisconnectFromDocument();
-                        break;
 
-                    default:
-                        out.writeUTF("Invalid request type");
-                        break;
+                processCommand(requestType);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            handleDisconnection();
+        }
+    }
+
+    private void processCommand(String requestType) throws IOException {
+        System.out.println("Received request: " + requestType);
+
+        switch (requestType) {
+            case "login":
+                handleLogin();
+                break;
+            case "signup":
+                handleSignup();
+                break;
+            case "reconnect":
+                handleReconnect();
+                break;
+            case "getDocuments":
+                handleDocumentRequest();
+                break;
+            case "createDocument":
+                handleCreateDocument();
+                break;
+            case "getDocumentContent":
+                handleGetDocumentContent();
+                break;
+            case "saveDocumentContent":
+                handleSaveDocumentContent();
+                break;
+            case "deleteDocument":
+                handleDeleteDocument();
+                break;
+            case "joinDocument":
+                handleJoinDocument();
+                break;
+            case "getSharingCode":
+                handleGetSharingCode();
+                break;
+            case "syncDocument":
+                handleSyncDocument();
+                break;
+            case "edit":
+                handleEditBroadcast();
+                break;
+            case "crdt_insert":
+                handleCRDTInsert();
+                break;
+            case "crdt_delete":
+                handleCRDTDelete();
+                break;
+            case "crdt_sync":
+                handleCRDTSync();
+                break;
+            case "cursor_update":
+                handleCursorUpdate();
+                break;
+            case "getActiveUsers":
+                handleGetActiveUsers();
+                break;
+            case "disconnectFromDocument":
+                handleDisconnectFromDocument();
+                break;
+
+            default:
+                out.writeUTF("Invalid request type");
+                break;
+        }
+    }
+
+    private void handleDisconnection() {
+        disconnected = true;
+
+        // Check if we should maintain this session for reconnection
+        if (userId != -1 && sessionId != null) {
+            System.out.println("Client disconnected, maintaining session for 5 minutes: " + sessionId);
+            // Don't remove from collections yet, wait for session timeout
+            // Session cleanup is handled by the session monitor thread
+        } else {
+            // Final cleanup
+            cleanupResources();
+        }
+    }
+
+    public void cleanupResources() {
+        if (currentDocument != null) {
+            CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>()).remove(this);
+        }
+
+        if (sessionId != null) {
+            CollabServer.sessionMap.remove(sessionId);
+        }
+
+        try {
+            if (clientSocket != null && !clientSocket.isClosed()) {
+                clientSocket.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void processPendingMessages() {
+        try {
+            // Send count of pending messages
+            out.writeInt(pendingMessages.size());
+
+            // Send all pending messages
+            while (!pendingMessages.isEmpty()) {
+                Message msg = pendingMessages.poll();
+                if (msg != null) {
+                    msg.sendTo(out);
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
-        } finally {
+        }
+    }
+
+    private void handleReconnect() throws IOException {
+        String sessionId = in.readUTF();
+
+        ClientHandler existingHandler = CollabServer.sessionMap.get(sessionId);
+        if (existingHandler != null &&
+                System.currentTimeMillis() - existingHandler.lastActive <= 5 * 60 * 1000) {
+
+            // Valid reconnection
+            this.sessionId = sessionId;
+            this.userId = existingHandler.userId;
+            this.currentDocument = existingHandler.currentDocument;
+            this.role = existingHandler.role;
+            this.pendingMessages = existingHandler.pendingMessages;
+            this.realTimeMode = existingHandler.realTimeMode;
+
+            // Replace old handler in collections
             if (currentDocument != null) {
-                CollabServer.activeEditors.getOrDefault(currentDocument, new CopyOnWriteArrayList<>()).remove(this);
+                CollabServer.activeEditors
+                        .getOrDefault(currentDocument, new CopyOnWriteArrayList<>())
+                        .remove(existingHandler);
+                CollabServer.activeEditors
+                        .getOrDefault(currentDocument, new CopyOnWriteArrayList<>())
+                        .add(this);
             }
-            try {
-                clientSocket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+
+            // Update session map
+            CollabServer.sessionMap.put(sessionId, this);
+
+            // Notify client of successful reconnection
+            out.writeUTF("RECONNECT_SUCCESS");
+            out.writeInt(userId);
+            out.writeUTF(currentDocument != null ? currentDocument : "");
+            out.writeUTF(role != null ? role : "");
+
+            // Process any pending messages
+            processPendingMessages();
+        } else {
+            // Invalid or expired session
+            out.writeUTF("RECONNECT_FAILED");
         }
     }
 
@@ -124,8 +270,17 @@ public class ClientHandler extends Thread {
         boolean isValid = validateUser(username, password);
         if (isValid) {
             int userId = getUserIdByUsername(username);
+            this.userId = userId;
+
+            // Generate session ID for reconnection
+            if (sessionId == null) {
+                sessionId = UUID.randomUUID().toString();
+                CollabServer.sessionMap.put(sessionId, this);
+            }
+
             out.writeUTF("Login successful");
             out.writeInt(userId);
+            out.writeUTF(sessionId); // Send session ID to client
         } else {
             out.writeUTF("Invalid credentials");
         }
@@ -174,21 +329,27 @@ public class ClientHandler extends Thread {
     }
 
     private void handleDocumentRequest() throws IOException {
-        int userId = in.readInt();
-        List<Document> documents = Database.getUserDocuments(userId);
+        int userId = in.readInt(); // Read the user ID
+        List<Document> documents = Database.getUserDocuments(userId); // Get documents for the user
 
-        out.writeInt(documents.size());
+        out.writeInt(documents.size()); // Send the number of documents to the client
 
         for (Document doc : documents) {
+            // Get the sharing code for the current document and user
             String sharingCode = Database.getSharingCodeByDocumentAndUser(userId, doc.getId());
-            if (sharingCode == null)
+
+            System.out.println("Document: " + doc.getName() + ", Sharing Code: " + sharingCode);
+
+            // If sharingCode is null, use "N/A" as the default
+            if (sharingCode == null) {
                 sharingCode = "N/A";
+            }
 
-            String role = Database.getUserRoleForDocument(userId, doc.getId());
-
+            // Send the document name and the sharing code to the client
             out.writeUTF(doc.getName());
             out.writeUTF(sharingCode);
-            out.writeUTF(role); // Send role even if Document doesn't contain it
+            out.writeUTF("owner"); // Send the role as "owner" for now
+
         }
     }
 
@@ -463,6 +624,35 @@ public class ClientHandler extends Thread {
         }
 
         System.out.println("User " + uid + " left document: " + doc);
+    }
+
+    // Add this method to queue a message for disconnected users
+    public void queueMessage(Message message) {
+        pendingMessages.add(message);
+    }
+
+    public long getLastActive() {
+        return lastActive;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public int getUserId() {
+        return userId;
+    }
+
+    public String getCurrentDocument() {
+        return currentDocument;
+    }
+
+    public DataOutputStream getOutputStream() {
+        return out;
+    }
+
+    public boolean isConnected() {
+        return !disconnected && clientSocket != null && !clientSocket.isClosed();
     }
 
 }

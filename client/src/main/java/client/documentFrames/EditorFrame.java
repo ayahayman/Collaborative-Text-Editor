@@ -3,6 +3,7 @@ package client.documentFrames;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Desktop;
+import java.awt.Dialog.ModalityType;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -23,10 +24,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -36,6 +40,7 @@ import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -55,19 +60,21 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 
+import client.ClientConnectionManager;
+import client.ClientConnectionManager.ReconnectionListener;
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
 
-public class EditorFrame extends JFrame {
+public class EditorFrame extends JFrame implements ReconnectionListener {
 
     private JTextArea editorArea;
     private JLabel codeLabel;
     private JPanel topPanel;
     private JLabel userListLabel;
+    private JLabel connectionStatusLabel;
     private String docName;
     private int userId;
     private String role;
-    private Socket socket;
     private DataOutputStream out;
     private DataInputStream in;
     private boolean isRemoteEdit = false;
@@ -77,7 +84,10 @@ public class EditorFrame extends JFrame {
     private JList<String> activeUserList;
     private static String SERVER_HOST;
     private static int PORT;
-
+    private Queue<CRDTChar> pendingLocalInserts = new ConcurrentLinkedQueue<>();
+    private Queue<CRDTChar> pendingLocalDeletes = new ConcurrentLinkedQueue<>();
+    private boolean isReconnecting = false;
+    private JDialog reconnectingDialog;
 
     private static class CursorData {
         List<Integer> crdtId;
@@ -91,15 +101,19 @@ public class EditorFrame extends JFrame {
 
     private void connectToServer() {
         try {
-            socket = new Socket(SERVER_HOST, PORT);
-            out = new DataOutputStream(socket.getOutputStream());
-            in = new DataInputStream(socket.getInputStream());
+            // Use the shared connection
+            out = ClientConnectionManager.getOut();
+            in = ClientConnectionManager.getIn();
 
             // Notify server of intent to sync a document
             out.writeUTF("syncDocument");
             out.writeUTF(docName);
             out.writeInt(userId);
             out.writeUTF(role);
+
+            // Store current document info for reconnection
+            ClientConnectionManager.setCurrentDocument(docName);
+            ClientConnectionManager.setRole(role);
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -110,90 +124,102 @@ public class EditorFrame extends JFrame {
         new Thread(() -> {
             try {
                 while (true) {
-                    String msgType = in.readUTF();
-                    if (msgType.equals("edit")) {
-                        int offset = in.readInt();
-                        String inserted = in.readUTF();
-                        int deletedLength = in.readInt();
-
-                        SwingUtilities.invokeLater(() -> {
-                            try {
-                                isRemoteEdit = true;
-
-                                if (deletedLength > 0) {
-                                    editorArea.getDocument().remove(offset, deletedLength);
-                                }
-
-                                if (!inserted.isEmpty()) {
-                                    editorArea.getDocument().insertString(offset, inserted, null);
-                                }
-
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            } finally {
-                                isRemoteEdit = false;
-                            }
-                        });
-                    }
-                    if (msgType.equals("crdt_insert")) {
-                        String value = in.readUTF();
-                        int idSize = in.readInt();
-                        List<Integer> id = new ArrayList<>();
-                        for (int i = 0; i < idSize; i++) {
-                            id.add(in.readInt());
+                    try {
+                        String msgType = in.readUTF();
+                        processServerMessage(msgType);
+                    } catch (IOException e) {
+                        if (!isReconnecting) {
+                            System.out.println("Connection error in listener: " + e.getMessage());
+                            // Don't try to handle here - the connection manager will handle reconnection
+                            break;
                         }
-                        String site = in.readUTF();
-
-                        CRDTChar remoteChar = new CRDTChar(value, id, site);
-                        crdtDoc.remoteInsert(remoteChar);
-
-                        updateTextArea(true);
+                        Thread.sleep(1000); // Wait during reconnection
                     }
-
-                    if (msgType.equals("crdt_delete")) {
-                        int idSize = in.readInt();
-                        List<Integer> id = new ArrayList<>();
-                        for (int i = 0; i < idSize; i++) {
-                            id.add(in.readInt());
-                        }
-                        String site = in.readUTF();
-
-                        crdtDoc.deleteById(id, site);
-                        updateTextArea(true);
-                    }
-                    if (msgType.equals("cursor_update")) {
-                        int remoteUserId = in.readInt();
-                        int idSize = in.readInt();
-                        List<Integer> crdtId = new ArrayList<>();
-                        for (int i = 0; i < idSize; i++) {
-                            crdtId.add(in.readInt());
-                        }
-                        String colorHex = in.readUTF();
-                        Color color = Color.decode(colorHex);
-
-                        remoteCursors.put(remoteUserId, new CursorData(crdtId, color));
-
-                        SwingUtilities.invokeLater(this::repaintRemoteCursors);
-                    }
-                    if (msgType.equals("remove_cursor")) {
-                        int remoteUserId = in.readInt();
-
-                        SwingUtilities.invokeLater(() -> {
-                            remoteCursors.remove(remoteUserId);
-                            repaintRemoteCursors();
-                        });
-                    }
-
                 }
-            } catch (IOException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }).start();
     }
 
+    private void processServerMessage(String msgType) throws IOException {
+        if (msgType.equals("edit")) {
+            int offset = in.readInt();
+            String inserted = in.readUTF();
+            int deletedLength = in.readInt();
+
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    isRemoteEdit = true;
+
+                    if (deletedLength > 0) {
+                        editorArea.getDocument().remove(offset, deletedLength);
+                    }
+
+                    if (!inserted.isEmpty()) {
+                        editorArea.getDocument().insertString(offset, inserted, null);
+                    }
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    isRemoteEdit = false;
+                }
+            });
+        }
+        if (msgType.equals("crdt_insert")) {
+            String value = in.readUTF();
+            int idSize = in.readInt();
+            List<Integer> id = new ArrayList<>();
+            for (int i = 0; i < idSize; i++) {
+                id.add(in.readInt());
+            }
+            String site = in.readUTF();
+
+            CRDTChar remoteChar = new CRDTChar(value, id, site);
+            crdtDoc.remoteInsert(remoteChar);
+
+            updateTextArea(true);
+        }
+
+        if (msgType.equals("crdt_delete")) {
+            int idSize = in.readInt();
+            List<Integer> id = new ArrayList<>();
+            for (int i = 0; i < idSize; i++) {
+                id.add(in.readInt());
+            }
+            String site = in.readUTF();
+
+            crdtDoc.deleteById(id, site);
+            updateTextArea(true);
+        }
+        if (msgType.equals("cursor_update")) {
+            int remoteUserId = in.readInt();
+            int idSize = in.readInt();
+            List<Integer> crdtId = new ArrayList<>();
+            for (int i = 0; i < idSize; i++) {
+                crdtId.add(in.readInt());
+            }
+            String colorHex = in.readUTF();
+            Color color = Color.decode(colorHex);
+
+            remoteCursors.put(remoteUserId, new CursorData(crdtId, color));
+
+            SwingUtilities.invokeLater(this::repaintRemoteCursors);
+        }
+        if (msgType.equals("remove_cursor")) {
+            int remoteUserId = in.readInt();
+
+            SwingUtilities.invokeLater(() -> {
+                remoteCursors.remove(remoteUserId);
+                repaintRemoteCursors();
+            });
+        }
+    }
+
     private void enableRealTimeSync() {
         editorArea.getDocument().addUndoableEditListener(e -> {
-            if (isRemoteEdit) {
+            if (isRemoteEdit || isReconnecting) {
                 return;
             }
 
@@ -214,13 +240,23 @@ public class EditorFrame extends JFrame {
                             // Insert into CRDT
                             CRDTChar crdtChar = crdtDoc.localInsert(logicalPos, ch);
 
-                            // Send CRDTChar to server
-                            sendInsertCRDT(crdtChar);
+                            // Send CRDTChar to server if connected
+                            if (!isReconnecting) {
+                                try {
+                                    sendInsertCRDT(crdtChar);
+                                } catch (IOException ex) {
+                                    // Queue for reconnection
+                                    pendingLocalInserts.add(crdtChar);
+                                }
+                            } else {
+                                // Queue for reconnection
+                                pendingLocalInserts.add(crdtChar);
+                            }
 
                             // Update own cursor to follow inserted char
                             List<CRDTChar> updated = crdtDoc.getCharList();
                             int newPos = updated.indexOf(crdtChar);
-                            List<Integer> nextId ;
+                            List<Integer> nextId;
                             if (newPos + 1 < updated.size()) {
                                 nextId = updated.get(newPos + 1).id;
                             } else {
@@ -233,7 +269,6 @@ public class EditorFrame extends JFrame {
                             SwingUtilities.invokeLater(() -> {
                                 editorArea.setCaretPosition(newPos + 1); // Adjust as needed
                             });
-
                         }
 
                     } catch (BadLocationException ex) {
@@ -247,7 +282,14 @@ public class EditorFrame extends JFrame {
                         int targetIndex = Math.min(offset, chars.size() - 1); // Clamp to last valid index
                         if (targetIndex >= 0 && targetIndex < chars.size()) {
                             CRDTChar toDelete = chars.get(targetIndex);
-                            sendDeleteCRDT(toDelete.id, toDelete.siteId);
+
+                            try {
+                                sendDeleteCRDT(toDelete.id, toDelete.siteId);
+                            } catch (IOException ex) {
+                                // Queue for reconnection
+                                pendingLocalDeletes.add(toDelete);
+                            }
+
                             crdtDoc.deleteById(toDelete.id, toDelete.siteId);
                         }
                     }
@@ -275,7 +317,7 @@ public class EditorFrame extends JFrame {
 
     public EditorFrame(String docName, int userId, String role, String serverHost, int port) {
         SERVER_HOST = serverHost;
-        PORT=port;
+        PORT = port;
         this.docName = docName;
         this.userId = userId;
         this.role = role;
@@ -290,6 +332,11 @@ public class EditorFrame extends JFrame {
         codeLabel = new JLabel("Document: " + docName);
         codeLabel.setFont(new Font("Arial", Font.ITALIC, 14));
         codeLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // Create connection status label
+        connectionStatusLabel = new JLabel("Connected");
+        connectionStatusLabel.setForeground(new Color(0, 150, 0)); // Green when connected
+        connectionStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
 
         JMenuBar menuBar = new JMenuBar();
         JMenu fileMenu = new JMenu("File");
@@ -314,6 +361,7 @@ public class EditorFrame extends JFrame {
 
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
+        buttonPanel.add(connectionStatusLabel); // Add connection status label
         menuBar.add(buttonPanel);
 
         topPanel.add(menuBar, BorderLayout.NORTH);
@@ -338,11 +386,15 @@ public class EditorFrame extends JFrame {
 
         add(activeUserList, BorderLayout.EAST);
 
+        // Register for reconnection events
+        ClientConnectionManager.addReconnectionListener(this);
+
         fetchContentAndCode();
         fetchActiveUsers();
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
+                ClientConnectionManager.removeReconnectionListener(EditorFrame.this);
                 sendDisconnectSignal();
             }
         });
@@ -366,6 +418,26 @@ public class EditorFrame extends JFrame {
             }
         });
 
+        createReconnectionDialog();
+    }
+
+    private void createReconnectionDialog() {
+        reconnectingDialog = new JDialog(this, "Reconnecting...", ModalityType.MODELESS);
+        reconnectingDialog.setSize(300, 100);
+        reconnectingDialog.setLocationRelativeTo(this);
+
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JLabel label = new JLabel("Connection lost. Reconnecting...");
+        JProgressBar progressBar = new JProgressBar();
+        progressBar.setIndeterminate(true);
+
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(progressBar, BorderLayout.CENTER);
+
+        reconnectingDialog.add(panel);
+        reconnectingDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
     }
 
     private Color getOwnCursorColor() {
@@ -375,9 +447,9 @@ public class EditorFrame extends JFrame {
 
     private void fetchContentAndCode() {
         // Fetch document content
-        try (Socket socket = new Socket(SERVER_HOST, PORT);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try {
+            DataOutputStream out = ClientConnectionManager.getOut();
+            DataInputStream in = ClientConnectionManager.getIn();
 
             out.writeUTF("getDocumentContent");
             out.writeUTF(docName);
@@ -392,9 +464,9 @@ public class EditorFrame extends JFrame {
         }
 
         // Fetch both editor and viewer codes
-        try (Socket socket = new Socket(SERVER_HOST, PORT);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try {
+            DataOutputStream out = ClientConnectionManager.getOut();
+            DataInputStream in = ClientConnectionManager.getIn();
 
             out.writeUTF("getSharingCode");
             out.writeUTF(docName);
@@ -452,9 +524,13 @@ public class EditorFrame extends JFrame {
     }
 
     private void saveContent() {
-        try (Socket socket = new Socket(SERVER_HOST, PORT);
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DataInputStream in = new DataInputStream(socket.getInputStream())) {
+        try {
+            if (ClientConnectionManager.isReconnecting()) {
+                return; // Don't try to save during reconnection
+            }
+
+            DataOutputStream out = ClientConnectionManager.getOut();
+            DataInputStream in = ClientConnectionManager.getIn();
 
             out.writeUTF("saveDocumentContent");
             out.writeUTF(docName);
@@ -463,7 +539,8 @@ public class EditorFrame extends JFrame {
             in.readUTF();
 
         } catch (IOException e) {
-            e.printStackTrace();
+            System.out.println("Failed to autosave: " + e.getMessage());
+            // No need to handle here, connection manager will handle reconnection
         }
     }
 
@@ -483,9 +560,9 @@ public class EditorFrame extends JFrame {
                 JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            try (Socket socket = new Socket(SERVER_HOST, PORT);
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try {
+                DataOutputStream out = ClientConnectionManager.getOut();
+                DataInputStream in = ClientConnectionManager.getIn();
 
                 out.writeUTF("deleteDocument");
                 out.writeInt(userId);
@@ -695,31 +772,23 @@ public class EditorFrame extends JFrame {
     }
 
     // Helper methods
-    private void sendInsertCRDT(CRDTChar c) {
-        try {
-            out.writeUTF("crdt_insert");
-            out.writeUTF(c.value);
-            out.writeInt(c.id.size());
-            for (int i : c.id) {
-                out.writeInt(i);
-            }
-            out.writeUTF(c.siteId);
-        } catch (IOException e) {
-            e.printStackTrace();
+    private void sendInsertCRDT(CRDTChar c) throws IOException {
+        out.writeUTF("crdt_insert");
+        out.writeUTF(c.value);
+        out.writeInt(c.id.size());
+        for (int i : c.id) {
+            out.writeInt(i);
         }
+        out.writeUTF(c.siteId);
     }
 
-    private void sendDeleteCRDT(List<Integer> id, String siteId) {
-        try {
-            out.writeUTF("crdt_delete");
-            out.writeInt(id.size());
-            for (int i : id) {
-                out.writeInt(i);
-            }
-            out.writeUTF(siteId);
-        } catch (IOException e) {
-            e.printStackTrace();
+    private void sendDeleteCRDT(List<Integer> id, String siteId) throws IOException {
+        out.writeUTF("crdt_delete");
+        out.writeInt(id.size());
+        for (int i : id) {
+            out.writeInt(i);
         }
+        out.writeUTF(siteId);
     }
 
     private void performCRDTSync() {
@@ -835,7 +904,8 @@ public class EditorFrame extends JFrame {
     }
 
     private void updateOwnCursorCRDTIdFromCaret() {
-        if (isRemoteEdit) return; // Avoid updating during remote edits
+        if (isRemoteEdit)
+            return; // Avoid updating during remote edits
         int caret = editorArea.getCaretPosition();
         List<CRDTChar> chars = crdtDoc.getCharList();
 
@@ -860,15 +930,18 @@ public class EditorFrame extends JFrame {
                 out.writeInt(i);
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            // No need to handle here as loss of cursor updates is not critical
         }
     }
 
     private void fetchActiveUsers() {
         new Thread(() -> {
-            try (Socket socket = new Socket(SERVER_HOST, PORT);
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream in = new DataInputStream(socket.getInputStream())) {
+            try {
+                if (isReconnecting)
+                    return;
+
+                DataOutputStream out = ClientConnectionManager.getOut();
+                DataInputStream in = ClientConnectionManager.getIn();
 
                 out.writeUTF("getActiveUsers");
                 out.writeUTF(docName);
@@ -889,18 +962,22 @@ public class EditorFrame extends JFrame {
                 });
 
             } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println("Failed to fetch active users: " + e.getMessage());
             }
         }).start();
     }
 
     private void sendDisconnectSignal() {
         try {
+            if (isReconnecting)
+                return;
+
             out.writeUTF("disconnectFromDocument");
             out.writeUTF(docName);
             out.writeInt(userId);
         } catch (IOException e) {
-            e.printStackTrace();
+            // Just log, we're closing anyway
+            System.out.println("Failed to send disconnect signal: " + e.getMessage());
         }
     }
 
@@ -911,4 +988,99 @@ public class EditorFrame extends JFrame {
         JOptionPane.showMessageDialog(this, "Copied to clipboard: " + text);
     }
 
+    // ReconnectionListener implementation
+    @Override
+    public void onReconnecting() {
+        SwingUtilities.invokeLater(() -> {
+            isReconnecting = true;
+            connectionStatusLabel.setText("Reconnecting...");
+            connectionStatusLabel.setForeground(new Color(200, 150, 0)); // Yellow during reconnection
+            reconnectingDialog.setVisible(true);
+            editorArea.setEditable(false);
+        });
+    }
+
+    @Override
+    public void onReconnected() {
+        SwingUtilities.invokeLater(() -> {
+            isReconnecting = false;
+            connectionStatusLabel.setText("Connected");
+            connectionStatusLabel.setForeground(new Color(0, 150, 0));
+            reconnectingDialog.setVisible(false);
+
+            // Re-enable editor if not in viewer mode
+            if (!role.equals("viewer")) {
+                editorArea.setEditable(true);
+            }
+
+            // Re-initialize connection references
+            out = ClientConnectionManager.getOut();
+            in = ClientConnectionManager.getIn();
+
+            // Send pending local changes
+            processPendingChanges();
+
+            // Refresh document state from server
+            performCRDTSync();
+        });
+    }
+
+    private void processPendingChanges() {
+        try {
+            // Send all pending insertions
+            while (!pendingLocalInserts.isEmpty()) {
+                CRDTChar c = pendingLocalInserts.poll();
+                if (c != null) {
+                    sendInsertCRDT(c);
+                }
+            }
+
+            // Send all pending deletions
+            while (!pendingLocalDeletes.isEmpty()) {
+                CRDTChar c = pendingLocalDeletes.poll();
+                if (c != null) {
+                    sendDeleteCRDT(c.id, c.siteId);
+                }
+            }
+
+            // Re-save the current content
+            saveContent();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void onReconnectFailed() {
+        SwingUtilities.invokeLater(() -> {
+            isReconnecting = false;
+            connectionStatusLabel.setText("Disconnected");
+            connectionStatusLabel.setForeground(Color.RED);
+            reconnectingDialog.setVisible(false);
+
+            JOptionPane.showMessageDialog(this,
+                    "Connection to the server could not be restored.\n" +
+                            "Your changes have been saved locally but not synchronized.\n" +
+                            "Please try reopening the document later.",
+                    "Connection Failed",
+                    JOptionPane.ERROR_MESSAGE);
+
+            editorArea.setEditable(false); // Disable editing until reconnection
+        });
+    }
+
+    @Override
+    public void onDisconnected() {
+        // This is called when disconnect is final (timeout)
+        SwingUtilities.invokeLater(() -> {
+            connectionStatusLabel.setText("Disconnected");
+            connectionStatusLabel.setForeground(Color.RED);
+            editorArea.setEditable(false);
+
+            JOptionPane.showMessageDialog(this,
+                    "Your session has expired. Please reopen the document.",
+                    "Session Expired",
+                    JOptionPane.WARNING_MESSAGE);
+        });
+    }
 }
