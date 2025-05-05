@@ -28,11 +28,13 @@ import client.ClientConnectionManager;
 
 public class LoginFrame extends JFrame {
     private static String SERVER_HOST;
+    private static int PORT;
     private JTextField usernameField;
     private JPasswordField passwordField;
     private JButton loginButton, signUpButton;
 
-    public LoginFrame(String serverHost) {
+    public LoginFrame(String serverHost, int port) {
+        PORT = port;
         SERVER_HOST = serverHost;
         setTitle("Login");
         setSize(500, 400);
@@ -135,7 +137,7 @@ public class LoginFrame extends JFrame {
 
         try {
             // Open shared connection
-            ClientConnectionManager.connect(SERVER_HOST, 12345);
+            ClientConnectionManager.connect(SERVER_HOST, PORT);
             DataOutputStream out = ClientConnectionManager.getOut();
             DataInputStream in = ClientConnectionManager.getIn();
 
@@ -162,7 +164,7 @@ public class LoginFrame extends JFrame {
     }
 
     private void openSignUpFrame() {
-        new SignUpFrame(SERVER_HOST).setVisible(true);
+        new SignUpFrame(SERVER_HOST, PORT).setVisible(true);
         this.dispose();
     }
 }
