@@ -1,12 +1,16 @@
-
 package crdt;
+
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 public class CRDTDocument {
 
     private final List<CRDTChar> charList = new ArrayList<>();
+    private final Map<CRDTChar, List<CRDTChar>> tree = new HashMap<>();
     private final String siteId;
     private final Random random = new Random();
 
@@ -25,21 +29,34 @@ public class CRDTDocument {
             0
         );
 
-        CRDTChar newChar = new CRDTChar(value, newId, siteId);
+        CRDTChar parent = left; // Define parent explicitly
+        CRDTChar newChar = new CRDTChar(value, newId, siteId, parent);
+
         insertSorted(newChar);
+        tree.computeIfAbsent(parent, k -> new ArrayList<>()).add(newChar);
         return newChar;
     }
 
-    // Apply a remote insert    
+    // Apply a remote insert
     public void remoteInsert(CRDTChar crdtChar) {
         if (!charList.contains(crdtChar)) {
             insertSorted(crdtChar);
+            tree.computeIfAbsent(crdtChar.parent, k -> new ArrayList<>()).add(crdtChar);
         }
     }
 
-    // Delete by ID
+    // Delete by ID and site
     public boolean deleteById(List<Integer> id, String originSite) {
-        return charList.removeIf(c -> c.id.equals(id) && c.siteId.equals(originSite));
+        Iterator<CRDTChar> iterator = charList.iterator();
+        while (iterator.hasNext()) {
+            CRDTChar c = iterator.next();
+            if (c.id.equals(id) && c.siteId.equals(originSite)) {
+                iterator.remove();
+                tree.remove(c); // remove from tree structure
+                return true;
+            }
+        }
+        return false;
     }
 
     // Get the string representation of the CRDT document
@@ -62,7 +79,7 @@ public class CRDTDocument {
 
     // Generate a new ID between two existing ones
     private List<Integer> generateIdBetween(List<Integer> left, List<Integer> right, int depth) {
-        int base = 10; // The base granularity
+        int base = 10;
 
         int leftId = (left.size() > depth) ? left.get(depth) : 0;
         int rightId = (right.size() > depth) ? right.get(depth) : base;
@@ -79,7 +96,21 @@ public class CRDTDocument {
         }
     }
 
+    // raverse and print the tree structure
+    public void printTree(CRDTChar node, int depth) {
+        if (node == null) return;
+        System.out.println(" ".repeat(depth * 2) + node.value + " -> " + node.id);
+        List<CRDTChar> children = tree.getOrDefault(node, new ArrayList<>());
+        for (CRDTChar child : children) {
+            printTree(child, depth + 1);
+        }
+    }
+
     public List<CRDTChar> getCharList() {
         return charList;
+    }
+
+    public Map<CRDTChar, List<CRDTChar>> getTree() {
+        return tree;
     }
 }

@@ -1,17 +1,23 @@
 package server;
 
-import org.mindrot.jbcrypt.BCrypt;
-
-import crdt.CRDTChar;
-
-import java.io.*;
-import java.net.*;
-import java.sql.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.net.Socket;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import org.mindrot.jbcrypt.BCrypt;
+
+import crdt.CRDTChar;
 
 public class ClientHandler extends Thread {
 
@@ -338,7 +344,7 @@ public class ClientHandler extends Thread {
         String site = in.readUTF();
 
         // Save it in CRDT storage
-        CRDTChar newChar = new CRDTChar(value, id, site);
+        CRDTChar newChar = new CRDTChar(value, id, site, null); // ✅ Works for now with no parent tracking
         CollabServer.crdtStorage.putIfAbsent(currentDocument, new ArrayList<>());
         List<CRDTChar> crdtList = CollabServer.crdtStorage.get(currentDocument);
 

@@ -10,6 +10,7 @@ import java.awt.Graphics;
 import java.awt.Shape;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ActionEvent;
 import java.awt.geom.Rectangle2D;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -19,6 +20,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Stack;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -45,7 +51,7 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.Highlighter;
 import javax.swing.text.JTextComponent;
 import javax.swing.undo.UndoableEdit;
-import java.util.*;
+
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
@@ -56,7 +62,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import client.UndoRedoOperation;
 import crdt.CRDTChar;
 import crdt.CRDTDocument;
-import java.awt.event.ActionEvent; 
+
 public class EditorFrame extends JFrame {
 
     private JTextArea editorArea;
@@ -78,7 +84,7 @@ public class EditorFrame extends JFrame {
     private static int PORT;
     Stack<UndoRedoOperation> undoStack = new Stack<>();
     Stack<UndoRedoOperation> redoStack = new Stack<>();
-    private  boolean suppressInitialLoadEdits = true; // Flag to track if the user is writing for the first time
+    private boolean suppressInitialLoadEdits = true; // Flag to track if the user is writing for the first time
 
     private static class CursorData {
 
@@ -148,9 +154,8 @@ public class EditorFrame extends JFrame {
                         }
                         String site = in.readUTF();
 
-                        CRDTChar remoteChar = new CRDTChar(value, id, site);
-                        crdtDoc.remoteInsert(remoteChar);
-
+                        CRDTChar c = new CRDTChar(value, id, site, null);
+                        crdtDoc.remoteInsert(c); // ✅ 'c' is the CRDTChar you just created
                         updateTextArea(true);
                     }
 
@@ -414,7 +419,6 @@ public class EditorFrame extends JFrame {
                 editorArea.setEditable(false);
             }
             SwingUtilities.invokeLater(() -> suppressInitialLoadEdits = false);
-
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -772,7 +776,7 @@ public class EditorFrame extends JFrame {
                 }
                 String site = in.readUTF();
 
-                CRDTChar c = new CRDTChar(value, id, site);
+                CRDTChar c = new CRDTChar(value, id, site, null);
                 crdtDoc.remoteInsert(c);
             }
             updateTextArea(false);
@@ -952,11 +956,13 @@ public class EditorFrame extends JFrame {
                 .setContents(new StringSelection(text), null);
         JOptionPane.showMessageDialog(this, "Copied to clipboard: " + text);
     }
+
     private void storeEditState(List<CRDTChar> editedState, boolean thisOperationIsForInsertion) {
         System.out.println("Storing edit state: " + editedState + " is insert: " + thisOperationIsForInsertion);
         try {
-            if (suppressInitialLoadEdits || isRemoteEdit)
+            if (suppressInitialLoadEdits || isRemoteEdit) {
                 return;
+            }
             if (undoStack.size() >= 3) {
                 undoStack.remove(0);
             }
@@ -996,7 +1002,6 @@ public class EditorFrame extends JFrame {
                         crdtDoc.deleteById(crdtChar.id, crdtChar.siteId);
                         sendDeleteCRDT(crdtChar.id, crdtChar.siteId); // Send delete to server for remote users
 
-
                     }
 
                 } else {
@@ -1031,7 +1036,7 @@ public class EditorFrame extends JFrame {
 
                 System.out.println(
                         "caret position dakhel redo: " + operation.caretPosition() + " undo insertion: " + operation
-                                .thisOperationIsForInsertion());
+                        .thisOperationIsForInsertion());
                 operation.FlipType();
                 redoStack.push(operation);
 
@@ -1086,7 +1091,7 @@ public class EditorFrame extends JFrame {
                 operation.FlipType();
                 System.out.println(
                         "caret position dakhel undo: " + operation.caretPosition() + " undo insertion: " + operation
-                                .thisOperationIsForInsertion());
+                        .thisOperationIsForInsertion());
 
                 undoStack.push(operation);
             }
